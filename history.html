@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>История прогнозов — CryptoBavaro</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  body{margin:0;background:#0b1020;color:#e5ecff;font:15px/1.45 system-ui}
+  .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+  h1{font-size:20px;margin:0 0 12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .input,select{background:#0a1222;border:1px solid #1b2a48;color:#e5ecff;padding:8px 10px;border-radius:8px}
+  .btn{background:#2563eb;border:0;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px;border-bottom:1px solid #1e2a48;font-size:13px}
+  th{color:#9fb0cc;text-align:left}
+  .muted{color:#9fb0cc}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>История прогнозов</h1>
+  <div class="row">
+    <label>Символ</label><input id="sym" class="input" value="BTCUSDT" style="width:120px">
+    <label>TF</label><select id="tf" class="input"><option value="">Любой</option><option>5</option><option>15</option></select>
+    <label>Лимит</label><input id="limit" class="input" value="200" style="width:80px">
+    <button class="btn" onclick="load()">Показать</button>
+    <a id="csv" class="btn" href="#">CSV</a>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th>Время</th><th>Символ</th><th>TF</th><th>Цена</th>
+      <th>Режим</th><th>Направление</th><th>Уверенность</th>
+      <th class="muted">Вероятности (T/R/E)</th>
+    </tr></thead>
+    <tbody id="tbody"><tr><td class="muted" colspan="8">— загрузка —</td></tr></tbody>
+  </table>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+async function load(){
+  const sym=$('#sym').value.trim(), tf=$('#tf').value, limit=$('#limit').value;
+  $('#tbody').innerHTML='<tr><td class="muted" colspan="8">— загрузка —</td></tr>';
+  const url=`/history.php?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}&t=${Date.now()}`;
+  const res=await fetch(url,{cache:'no-store'}); const js=await res.json();
+  if(!js.items||!js.items.length){$('#tbody').innerHTML='<tr><td class="muted" colspan="8">— пусто —</td></tr>';return;}
+  const rows=js.items.map(r=>{
+    const a=r.result_json?JSON.parse(r.result_json):{};
+    const p=a.probabilities||{};
+    const dt=new Date(parseInt(r.ts)).toLocaleString('ru-RU');
+    return `<tr>
+      <td>${dt}</td><td>${r.symbol}</td><td>${r.tf}</td><td>${Number(r.price||0).toLocaleString('ru-RU')}</td>
+      <td>${a.regime||''}</td><td>${a.bias||''}</td><td>${a.confidence??''}%</td>
+      <td class="muted">${(p.trend??0).toFixed?.(1)||p.trend||0}% / ${(p.range??0).toFixed?.(1)||p.range||0}% / ${(p.expansion??0).toFixed?.(1)||p.expansion||0}%</td>
+    </tr>`;
+  }).join('');
+  $('#tbody').innerHTML=rows;
+  $('#csv').href=`/history.php?mode=csv&symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}`;
+}
+load();
+</script>
+</body>
+</html>
