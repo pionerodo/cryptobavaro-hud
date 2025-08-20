@@ -1,89 +1,89 @@
 <?php
-// latest_analysis.php — отдать последний снапшот + анализ для символа/TF
+require_once __DIR__ . '/config.php';
 
-declare(strict_types=1);
+// Анти‑кэш
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 
-require_once __DIR__ . '/config.php'; // здесь db(): PDO
-// Если у вас другой путь к конфигу — поправьте подключение.
+// Плейбук — такой же, как в analyze.php (держим в одном месте, можно вынести в helper)
+function playbook_from_features(array $f) : array {
+    $mm   = $f['mm'] ?? 'neutral';
+    $ts   = intval($f['ts'] ?? 0);
+    $tr   = floatval($f['tr'] ?? 0);
+    $dav  = floatval($f['dav'] ?? 9);
+    $sqs  = intval($f['sqs'] ?? 0);
+    $bbr  = floatval($f['bbr'] ?? 50);
+    $k    = floatval($f['k'] ?? 50);
+    $nearTop = intval($f['nbt'] ?? 0) === 1;
+    $nearBot = intval($f['nbb'] ?? 0) === 1;
+    $res = [];
+
+    if ($mm === 'trend' && $tr >= 0.8 && $dav <= 0.3) {
+        if ($ts === 1) {
+            $res[] = ['name'=>'Продолжение тренда (лонг)','dir'=>'long','entry'=>'возврат к aVWAP/микро‑откат',
+                      'sl'=>'ниже локального минимума или 1.2×ATR','tp'=>'TP1=1R/box_top (50%), TP2=2R, трейл по aVWAP−0.3×ATR','confidence'=>min(95, 60 + intval(($tr-0.8)*50))];
+        } elseif ($ts === -1) {
+            $res[] = ['name'=>'Продолжение тренда (шорт)','dir'=>'short','entry'=>'тест сверху aVWAP/микро‑откат',
+                      'sl'=>'выше локального максимума или 1.2×ATR','tp'=>'TP1=1R/box_bot (50%), TP2=2R, трейл по aVWAP+0.3×ATR','confidence'=>min(95, 60 + intval(($tr-0.8)*50))];
+        }
+    }
+    if ($mm === 'range' || ($bbr <= 20)) {
+        if ($nearTop) $res[] = ['name'=>'Флэт: от верхней границы (шорт)','dir'=>'short','entry'=>'паттерн слабости у box_top','sl'=>'за box_top (0.7–1.0×ATR)','tp'=>'середина бокса → box_bot (частями)','confidence'=>55+($k>80?10:0)];
+        if ($nearBot) $res[] = ['name'=>'Флэт: от нижней границы (лонг)','dir'=>'long','entry'=>'паттерн силы у box_bot','sl'=>'за box_bot (0.7–1.0×ATR)','tp'=>'середина бокса → box_top (частями)','confidence'=>55+($k<20?10:0)];
+    }
+    if ($sqs >= 5 && $bbr <= 20) {
+        $res[] = ['name'=>'Прорыв после сжатия','dir'=>'both','entry'=>'ретест пробитой границы','sl'=>'за уровень (0.8×ATR)','tp'=>'1R, 2R, далее трейл по свингам','confidence'=>65];
+    }
+    return $res;
+}
 
 try {
+    $symbol = isset($_GET['symbol']) ? norm_symbol($_GET['symbol']) : null;
+    $tf     = isset($_GET['tf']) ? norm_tf($_GET['tf']) : null;
+    if (!$symbol || !$tf) throw new Exception('symbol & tf are required');
+
     $pdo = db();
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    // === НАСТРОЙКИ ТАБЛИЦ (под ваш префикс) ===
-    $T_SNAP = 'cbav_hud_snapshots';
-    $T_AN   = 'cbav_hud_analyses';
-
-    // === ВХОДНЫЕ ПАРАМЕТРЫ ===
-    $symbol = isset($_GET['symbol']) ? trim($_GET['symbol']) : '';
-    $tf     = isset($_GET['tf']) ? trim($_GET['tf']) : '';
-
-    if ($symbol === '' || $tf === '') {
-        echo json_encode(['status' => 'error', 'error' => 'symbol and tf required', 'code' => 400], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
-    // === ЗАПРОС ПО ПОСЛЕДНЕМУ СНАПШОТУ ===
-    $sql = "
-        SELECT 
-            s.id            AS snapshot_id,
-            s.symbol,
-            s.tf,
-            s.ts,
-            s.price,
-            s.f_json,
-            s.lv_json,
-            s.pat_json,
-            a.id            AS analysis_id,
-            a.notes,
-            a.playbook_json,
-            a.bias,
-            a.confidence,
-            a.source
-        FROM `{$T_SNAP}` AS s
-        LEFT JOIN `{$T_AN}` AS a ON a.snapshot_id = s.id
-        WHERE s.symbol = :sym AND s.tf = :tf
-        ORDER BY s.ts DESC
-        LIMIT 1
-    ";
-    $st = $pdo->prepare($sql);
-    $st->execute([':sym' => $symbol, ':tf' => $tf]);
-    $row = $st->fetch(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare("
+        SELECT * FROM `".TBL_SNAPS."`
+        WHERE symbol=:s AND tf=:tf
+        ORDER BY ts DESC LIMIT 1
+    ");
+    $stmt->execute([':s'=>$symbol, ':tf'=>$tf]);
+    $row = $stmt->fetch();
 
     if (!$row) {
-        echo json_encode(['status' => 'ok', 'found' => false], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['status'=>'ok','found'=>false], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    // Разобрать вложенные JSON
-    $features = json_decode($row['f_json'] ?? '[]', true);
-    $levels   = json_decode($row['lv_json'] ?? '[]', true);
-    $pats     = json_decode($row['pat_json'] ?? '[]', true);
+    $payload = json_decode($row['payload_json'], true) ?: [];
+    $p = $row['price'] ?? null;
+    if (!$p) $p = $payload['p'] ?? $payload['price'] ?? null;
 
-    $analysis = [
-        'notes'    => $row['notes']         ?? 'нет',
-        'playbook' => json_decode($row['playbook_json'] ?? '[]', true),
-        'bias'     => $row['bias']          ?? 'neutral',
-        'conf'     => intval($row['confidence'] ?? 0),
-        'source'   => $row['source']        ?? 'heuristic',
+    $f  = $payload['f'] ?? $payload['features'] ?? [];
+    $lv = $payload['lv'] ?? $payload['levels'] ?? [];
+    $pat= $payload['pat'] ?? $payload['patterns'] ?? [];
+
+    $resp = [
+      'status'     => 'ok',
+      'found'      => true,
+      'snapshot_id'=> intval($row['id']),
+      'symbol'     => 'BINANCE:'.$row['symbol'], // для UI
+      'tf'         => strval($row['tf']),
+      'ts'         => intval($row['ts']),
+      'p'          => $p,
+      'f'          => $f,
+      'lv'         => $lv,
+      'pat'        => $pat,
+      'analysis'   => [
+        'notes'    => $f['note'] ?? '',
+        'playbook' => playbook_from_features($f)
+      ]
     ];
-
-    $out = [
-        'status'      => 'ok',
-        'found'       => true,
-        'snapshot_id' => intval($row['snapshot_id']),
-        'symbol'      => $row['symbol'],
-        'tf'          => $row['tf'],
-        'ts'          => intval($row['ts']),
-        'p'           => floatval($row['price']),
-        'f'           => $features,
-        'lv'          => $levels,
-        'pat'         => $pats,
-        'analysis'    => $analysis,
-    ];
-    echo json_encode($out, JSON_UNESCAPED_UNICODE);
-
+    echo json_encode($resp, JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
-    echo json_encode(['status' => 'error', 'error' => $e->getMessage(), 'code' => 500], JSON_UNESCAPED_UNICODE);
+    http_response_code(400);
+    echo json_encode(['status'=>'error','error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
 }
