@@ -8,3 +8,6 @@ trading/backups_*/
 # IDE/OS
 .DS_Store
 Thumbs.db
+# local backups / dumps
+/backups_*
+/*_backup_*.tar.gz
