@@ -1,250 +1,336 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>HUD — BTCUSDT 5m</title>
-<style>
-  :root{
-    --bg:#0b1320; --panel:#121a2b; --muted:#7b8aa5; --text:#e7eefc;
-    --green:#26d07c; --yellow:#ffd166; --red:#ff6b6b; --blue:#4dabf7; --teal:#4dd0e1;
-    --accent:#5b8cff;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:linear-gradient(180deg,#0a1020,#0d1528 40%,#0b1320);color:var(--text);font:14px/1.4 system-ui,Segoe UI,Roboto,Arial}
-  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
-  .grid{display:grid;grid-gap:16px}
-  .grid.cols{grid-template-columns:repeat(2,1fr)}
-  .card{background:var(--panel);border-radius:16px;padding:16px;box-shadow:0 6px 28px rgba(0,0,0,.35)}
-  .h{display:grid;grid-template-columns:repeat(4,1fr);grid-gap:16px}
-  .kpi{background:#0f1730;border-radius:14px;padding:14px 16px}
-  .kpi .lbl{color:var(--muted);font-size:12px;margin-bottom:6px}
-  .kpi .val{font-size:20px;font-weight:700}
-  .title{font-weight:700;margin-bottom:10px}
-  .muted{color:var(--muted)}
-  .row{display:flex;align-items:center;gap:10px}
-  .pill{display:inline-block;border-radius:999px;padding:4px 10px;background:#18233d;color:var(--text);font-size:12px}
-  .prog{height:10px;background:#18233d;border-radius:999px;overflow:hidden}
-  .prog > i{display:block;height:100%;background:var(--green);width:0}
-  .legend{display:flex;align-items:center;gap:14px;margin-top:8px}
-  .dot{width:10px;height:10px;border-radius:50%}
-  .pie{width:190px;height:190px;background:conic-gradient(var(--green) 0deg,var(--green) 220deg,#ffd166 220deg,#ffd166 220deg,#a78bfa 220deg,#a78bfa 220deg);border-radius:50%;display:grid;place-items:center;margin:10px auto 0}
-  .pie::after{content:"";width:120px;height:120px;background:var(--panel);border-radius:50%}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:10px 8px;border-bottom:1px solid #1d2742;font-size:13px}
-  th{color:var(--muted);text-align:left}
-  .key{display:flex;align-items:center;justify-content:space-between;background:#0f1730;border:1px solid #1b2b53;border-radius:12px;padding:10px 14px;margin:8px 0}
-  .sub{color:var(--muted);font-size:12px}
-  .hl{height:1px;background:#21335f;margin:8px 0}
-  .toolbar{display:flex;gap:10px;align-items:center;margin:0 0 12px}
-  input,select{background:#0f1730;color:var(--text);border:1px solid #24345d;border-radius:10px;padding:6px 10px;outline:none}
-  .btn{background:var(--accent);border:0;border-radius:10px;padding:8px 12px;color:#fff;cursor:pointer}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HUD — BTC/USDT</title>
+
+  <!-- Минималистичная тёмная тема без фреймворков -->
+  <style>
+    :root{
+      --bg:#0f1720; --panel:#111b27; --panel2:#0d1620; --muted:#8aa0b2;
+      --text:#e6f0f8; --accent:#6ee7b7; --warn:#f59e0b; --danger:#f87171; --line:#1e2a36;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+      color:var(--text); background:var(--bg);
+    }
+    .wrap{max-width:1200px; margin:24px auto; padding:0 16px;}
+    .row{display:flex; gap:12px; flex-wrap:wrap}
+    .panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px}
+    .panel2{background:var(--panel2)}
+    .muted{color:var(--muted)}
+    .h{font-weight:600; letter-spacing:.2px}
+    .kpi{flex:1; min-width:230px}
+    .kpi .hint{font-size:12px; color:var(--muted)}
+    .kpi .val{font-size:18px; margin-top:6px}
+    .controls{align-items:center; gap:12px}
+    label{font-size:12px; color:var(--muted); margin-right:6px}
+    input,select,button{
+      background:#0a131c; color:var(--text); border:1px solid var(--line); border-radius:10px; height:36px;
+      padding:0 10px; outline:none;
+    }
+    input::placeholder{color:#5e778d}
+    button{cursor:pointer; background:#143047; border-color:#1c415b}
+    button:hover{filter:brightness(1.08)}
+    .switch{display:inline-flex; align-items:center; gap:8px}
+    .badge{display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; line-height:1; border:1px solid var(--line); background:#0a131c}
+    .grid2{display:grid; grid-template-columns:1.1fr .9fr; gap:12px}
+    .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px}
+    .levels table{width:100%; border-collapse:collapse}
+    .levels th,.levels td{padding:10px 8px; border-top:1px solid var(--line); text-align:left}
+    .levels th{color:var(--muted); font-weight:500; font-size:12px}
+    .pill{display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px}
+    .ok{color:var(--accent)} .warn{color:var(--warn)} .err{color:var(--danger)}
+    .note{white-space:pre-wrap}
+    .empty{color:var(--muted); font-style:italic}
+    .right{display:flex; justify-content:flex-end; gap:8px}
+    .foot{margin-top:8px; font-size:12px; color:var(--muted)}
+    canvas{max-width:100%; height:260px}
+  </style>
+
+  <!-- Chart.js для пончика -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-<div class="wrap">
-  <div class="toolbar">
-    <label>Символ: <input id="sym" value="BTCUSDT" /></label>
-    <label>ТФ: 
-      <select id="tf">
-        <option value="5" selected>5</option>
-        <option value="15">15</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="auto" checked> авто‑обновление</label>
-    <button class="btn" onclick="tick()">Обновить</button>
-    <span class="muted" id="status"></span>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <div class="h">
-        <div class="kpi"><div class="lbl">Режим</div><div class="val" id="mode">—</div></div>
-        <div class="kpi"><div class="lbl">Направление</div><div class="val" id="bias">—</div></div>
-        <div class="kpi"><div class="lbl">Уверенность</div><div class="val" id="conf">—</div></div>
-        <div class="kpi"><div class="lbl">Время</div><div class="val" id="time">—</div></div>
+  <div class="wrap">
+    <!-- Контролы -->
+    <div class="row controls">
+      <div>
+        <label for="symbol">Символ</label>
+        <input id="symbol" value="BTCUSDT" spellcheck="false" />
       </div>
-      <div class="kpi" style="margin-top:14px">
-        <div class="lbl">Цена</div>
-        <div class="val" id="price">—</div>
+      <div>
+        <label for="tf">ТФ</label>
+        <select id="tf">
+          <option value="1">1</option>
+          <option value="5" selected>5</option>
+          <option value="15">15</option>
+          <option value="60">60</option>
+          <option value="240">240</option>
+        </select>
+      </div>
+      <label class="switch">
+        <input id="auto" type="checkbox" checked />
+        авто‑обновление
+      </label>
+      <button id="reload">Обновить</button>
+      <div class="muted" id="status">Нет данных</div>
+    </div>
+
+    <!-- KPI -->
+    <div class="row" style="margin-top:12px">
+      <div class="panel kpi">
+        <div class="hint">Режим</div>
+        <div class="val" id="k_mode">—</div>
+      </div>
+      <div class="panel kpi">
+        <div class="hint">Направление</div>
+        <div class="val" id="k_dir">—</div>
+      </div>
+      <div class="panel kpi">
+        <div class="hint">Уверенность</div>
+        <div class="val" id="k_conf">—</div>
+      </div>
+      <div class="panel kpi">
+        <div class="hint">Время</div>
+        <div class="val" id="k_time">—</div>
+      </div>
+      <div class="panel kpi">
+        <div class="hint">Цена</div>
+        <div class="val" id="k_price">—</div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="title">Заметки</div>
-      <div id="notes" class="muted">— нет заметок —</div>
+    <!-- Заметки -->
+    <div class="panel" style="margin-top:12px">
+      <div class="h">Заметки</div>
+      <div class="muted foot">— нет заметок —</div>
+      <div class="note" id="notes"></div>
     </div>
 
-    <div class="card">
-      <div class="title">Распределение вероятностей</div>
-      <div class="grid cols">
-        <div>
-          <div class="pie" id="pie"></div>
-          <div class="legend">
-            <span class="dot" style="background:var(--green)"></span><span class="muted">тренд</span>
-            <span class="dot" style="background:#a78bfa"></span><span class="muted">флэт</span>
-            <span class="dot" style="background:var(--yellow)"></span><span class="muted">расширение</span>
+    <!-- Вероятности + легенда -->
+    <div class="panel grid2" style="margin-top:12px">
+      <div>
+        <div class="h">Распределение вероятностей</div>
+        <div class="muted foot">тренд / флэт / расширение</div>
+        <div style="padding:8px 0 0 0">
+          <canvas id="pie"></canvas>
+        </div>
+        <div class="row" style="gap:12px; padding-top:6px">
+          <span class="pill">● тренд</span>
+          <span class="pill">● флэт</span>
+          <span class="pill">● расширение</span>
+        </div>
+      </div>
+      <div>
+        <div class="h">Сводка</div>
+        <div style="margin-top:10px">
+          <div class="row" style="justify-content:space-between">
+            <span class="muted">тренд</span><span id="s_trend" class="badge">—</span>
           </div>
-          <div class="muted" style="margin-top:6px">тренд / флэт / расширение</div>
-        </div>
-        <div>
-          <div class="muted">тренд</div>
-          <div class="prog"><i id="p_trend"></i></div><br/>
-          <div class="muted">флэт (диапазон)</div>
-          <div class="prog"><i id="p_range" style="background:#a78bfa"></i></div><br/>
-          <div class="muted">расширение</div>
-          <div class="prog"><i id="p_exp" style="background:var(--yellow)"></i></div>
+          <div class="row" style="justify-content:space-between; margin-top:8px">
+            <span class="muted">флэт (диапазон)</span><span id="s_flat" class="badge">—</span>
+          </div>
+          <div class="row" style="justify-content:space-between; margin-top:8px">
+            <span class="muted">расширение</span><span id="s_expand" class="badge">—</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="title">Ближайшие уровни</div>
-      <table id="levels"><thead><tr><th>Тип уровня</th><th>Уровень</th><th>Δ ATR</th></tr></thead><tbody></tbody></table>
+    <!-- Ближайшие уровни -->
+    <div class="panel levels" style="margin-top:12px">
+      <div class="h">Ближайшие уровни</div>
+      <div class="muted foot">Δ ATR — относительная «дистанция» уровня</div>
+      <table id="lvlTable" style="margin-top:8px">
+        <thead>
+          <tr><th>Тип уровня</th><th>Уровень</th><th>Δ ATR</th></tr>
+        </thead>
+        <tbody id="lvlBody">
+          <tr><td colspan="3" class="empty">— нет уровней —</td></tr>
+        </tbody>
+      </table>
     </div>
 
-    <div class="card">
-      <div class="title">Ключевые сигналы</div>
-      <div id="signals"></div>
-      <div class="muted" style="margin-top:8px">Вес 0..1 — вклад признака в итоговую оценку.</div>
+    <!-- Ключевые сигналы -->
+    <div class="panel" style="margin-top:12px">
+      <div class="h">Ключевые сигналы</div>
+      <div class="muted foot">Вес 0..1 — вклад признака в итоговую оценку</div>
+      <div id="signals" class="empty" style="margin-top:8px">— нет сигналов —</div>
     </div>
 
-    <div class="card">
-      <div class="title">Плейбук (сценарии)</div>
-      <div id="playbook"></div>
+    <!-- Плейбук -->
+    <div class="panel" style="margin-top:12px">
+      <div class="h">Плейбук (сценарии)</div>
+      <div id="playbook" class="empty" style="margin-top:8px">— сценариев нет —</div>
     </div>
 
+    <div class="foot right">
+      <span>API: <code>/latest_analysis.php?symbol=…&tf=…</code></span>
+    </div>
   </div>
 
-</div>
+  <script>
+    // ---------- утилы ----------
+    const $ = sel => document.querySelector(sel);
+    const fmt = new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 2});
+    const fmtInt = new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 0});
+    function tsToLocal(ms){
+      if(!ms) return "—";
+      try{
+        const d = new Date(Number(ms));
+        return d.toLocaleString();
+      }catch{ return "—"; }
+    }
+    function safe(v, def="—"){ return (v===undefined || v===null || v==='') ? def : v; }
 
-<script>
-const END_L = '/latest_analysis.php';
-const END_A = '/analyze.php';
+    // ---------- состояние ----------
+    let timer = null;
+    let pie = null;
 
-let timer=null;
+    function buildUrl(){
+      let sym = $('#symbol').value.trim();
+      if(sym && !sym.includes(':')) sym = 'BINANCE:' + sym;
+      const tf = $('#tf').value;
+      const u = new URL(location.origin + '/latest_analysis.php');
+      if(sym) u.searchParams.set('symbol', sym);
+      u.searchParams.set('tf', tf);
+      return u.toString();
+    }
 
-function el(id){return document.getElementById(id)}
-function fmt(n){return Number(n).toLocaleString('ru-RU')}
-function setProg(id,p){el(id).style.width = Math.max(0,Math.min(100,p))+'%'}
+    async function load(){
+      const url = buildUrl();
+      $('#status').textContent = 'Запрос…';
+      try{
+        const res = await fetch(url, {cache:'no-store'});
+        const data = await res.json();
+        if(!data || data.status!=='ok' || !data.found){
+          $('#status').textContent = 'Нет данных';
+          paintEmpty();
+          return;
+        }
+        $('#status').textContent = `OK · snapshot #${data.snapshot_id||'?'}`;
+        paint(data);
+      }catch(e){
+        console.error(e);
+        $('#status').textContent = 'Ошибка сети';
+      }
+    }
 
-function humanBias(ts){
-  if (ts>0) return 'вверх';
-  if (ts<0) return 'вниз';
-  return 'нейтрально';
-}
+    function startAuto(){
+      stopAuto();
+      if($('#auto').checked){
+        timer = setInterval(load, 15000);
+      }
+    }
+    function stopAuto(){ if(timer){ clearInterval(timer); timer=null; } }
 
-function jget(url){
-  const sep = url.includes('?') ? '&' : '?';
-  return fetch(url + sep + '__t=' + Date.now(), {cache:'no-store'}).then(r=>r.json());
-}
+    // ---------- отрисовка ----------
+    function paintEmpty(){
+      $('#k_mode').textContent = '—';
+      $('#k_dir').textContent = '—';
+      $('#k_conf').textContent = '—';
+      $('#k_time').textContent = '—';
+      $('#k_price').textContent = '—';
+      $('#notes').textContent = '';
+      $('#notes').previousElementSibling.style.display = '';
+      $('#lvlBody').innerHTML = `<tr><td colspan="3" class="empty">— нет уровней —</td></tr>`;
+      $('#signals').textContent = '— нет сигналов —';
+      $('#signals').classList.add('empty');
+      $('#playbook').textContent = '— сценариев нет —';
+      $('#playbook').classList.add('empty');
+      updatePie(0,0,0);
+      $('#s_trend').textContent = '—';
+      $('#s_flat').textContent  = '—';
+      $('#s_expand').textContent= '—';
+    }
 
-function renderSignals(f){
-  const s = el('signals');
-  s.innerHTML='';
-  const items = [
-    ['Направление HTF', f.ts, Math.round((Math.abs(+f.ts))*60)],
-    ['Сила тренда (EMA/ATR)', f.tr, Math.round((+f.tr>=0.8?100: (+f.tr*100)))],
-    ['MACD-Z импульс', f.mz, Math.round(Math.min(100, Math.abs(+f.mz)*12))],
-    ['Ширина полос Боллинджера', f.bbr, Math.round(Math.max(0,100-(+f.bbr)))],
-    ['Двойная вершина', (f.pat?.includes('DoubleTop')?1:0), 50],
-    ['Двойное дно', (f.pat?.includes('DoubleBottom')?1:0), 50],
-  ];
-  items.forEach(([name,val,weight])=>{
-    const div = document.createElement('div');
-    div.className = 'key';
-    div.innerHTML = `<div><b>${name}</b><div class="sub">val: ${typeof val==='number'?val.toFixed(2):val}</div></div>
-                     <div class="pill">${weight}%</div>`;
-    s.appendChild(div);
-  });
-}
+    function paint(d){
+      // KPI
+      const f = d.f || {};
+      $('#k_mode').textContent = safe(f.mm, '—');
+      $('#k_dir').textContent  = '—'; // в текущем API нет явного направления
+      $('#k_conf').textContent = (d.analysis && typeof d.analysis.confidence==='number')
+        ? `${d.analysis.confidence}%` : '—';
+      $('#k_time').textContent  = tsToLocal(d.ts);
+      $('#k_price').textContent = (typeof d.p==='number') ? fmt.format(d.p) : '—';
 
-function renderLevels(lv){
-  const tb = el('levels').querySelector('tbody');
-  tb.innerHTML='';
-  (lv||[]).forEach(x=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${x.t || x.type}</td><td>${fmt(x.lv ?? x.level)}</td><td>${x.da ?? x.dist_atr}</td>`;
-    tb.appendChild(tr);
-  });
-}
+      // Заметки
+      const notes = (d.analysis && d.analysis.notes) ? String(d.analysis.notes).trim() : '';
+      $('#notes').textContent = notes;
+      $('#notes').previousElementSibling.style.display = notes ? 'none' : '';
 
-function renderPlaybook(pb){
-  const box = el('playbook');
-  box.innerHTML='';
-  if(!pb || !pb.length){ box.innerHTML='<div class="muted">— нет сценариев —</div>'; return; }
-  pb.forEach(s=>{
-    const row = document.createElement('div');
-    row.className='key';
-    row.innerHTML = `
-      <div><b>${s.name}</b><div class="sub">${s.dir==='both'?'long/short':s.dir}</div></div>
-      <div class="pill">${(s.confidence||0)}%</div>
-    `;
-    const hl = document.createElement('div'); hl.className='hl';
-    const meta = document.createElement('div'); meta.className='muted';
-    meta.innerHTML = `<div><b>Вход:</b> ${s.entry||''}</div>
-                      <div><b>SL:</b> ${s.sl||''}</div>
-                      <div><b>TP:</b> ${s.tp||''}</div>`;
-    box.appendChild(row); box.appendChild(hl); box.appendChild(meta);
-  });
-}
+      // Распределение (если нет — делаем аккуратный фолбэк)
+      // Здесь подразумевается простая индикация: текущий режим = 1, остальные = 0
+      let trend=0, flat=0, expand=0;
+      const mm = (f.mm||'').toLowerCase();
+      if(mm.includes('trend') || mm.includes('тренд')) trend = 1;
+      else if(mm.includes('expand') || mm.includes('расшир')) expand = 1;
+      else flat = 1;
+      updatePie(trend, flat, expand);
+      $('#s_trend').textContent  = trend ? 'активен' : 'нет';
+      $('#s_flat').textContent   = flat  ? 'активен' : 'нет';
+      $('#s_expand').textContent = expand? 'активен' : 'нет';
 
-function renderTop(snap){
-  const F = snap.f || {};
-  const mm = F.mm || 'neutral';
-  const ts = (F.ts!==undefined)? Number(F.ts) : 0;
-  const mc = F.mc!==undefined ? Number(F.mc) : 0;
+      // Уровни
+      const lv = Array.isArray(d.lv)? d.lv : [];
+      if(lv.length){
+        $('#lvlBody').innerHTML = lv.map(x=>`
+          <tr>
+            <td><span class="pill">${safe(x.t,'—')}</span></td>
+            <td>${x.lv!==undefined ? fmtInt.format(x.lv) : '—'}</td>
+            <td>${x.da!==undefined ? fmt.format(x.da) : '—'}</td>
+          </tr>
+        `).join('');
+      }else{
+        $('#lvlBody').innerHTML = `<tr><td colspan="3" class="empty">— нет уровней —</td></tr>`;
+      }
 
-  el('mode').textContent = (mm==='trend'?'тренд':mm==='range'?'флэт':mm==='expansion'?'расширение':'нейтрально');
-  el('bias').textContent = humanBias(ts);
-  el('conf').textContent = mc ? mc.toFixed(0)+'%' : '—';
+      // Плейбук
+      const pb = (d.analysis && Array.isArray(d.analysis.playbook)) ? d.analysis.playbook : [];
+      const pbBox = $('#playbook');
+      if(pb.length){
+        pbBox.classList.remove('empty');
+        pbBox.innerHTML = `<ul style="margin:6px 0 0 16px">${pb.map(i=>`<li>${escapeHtml(String(i))}</li>`).join('')}</ul>`;
+      }else{
+        pbBox.classList.add('empty');
+        pbBox.textContent = '— сценариев нет —';
+      }
 
-  const dt = new Date(snap.ts || Date.now());
-  el('time').textContent = dt.toLocaleString('ru-RU');
+      // Сигналы (в текущем ответе нет — оставляем плейсхолдер)
+      const sig = $('#signals');
+      sig.classList.add('empty');
+      sig.textContent = '— нет сигналов —';
+    }
 
-  // Цена + фоллбэки
-  const price = snap.p ?? snap.price ?? (snap.analysis && snap.analysis.price) ?? null;
-  el('price').textContent = price ? fmt(price) : '—';
+    function updatePie(a,b,c){
+      const ctx = $('#pie');
+      const data = [a,b,c];
+      const colors = ['#34d399','#a78bfa','#60a5fa'];
+      if(pie){ pie.data.datasets[0].data = data; pie.update(); return; }
+      pie = new Chart(ctx, {
+        type:'doughnut',
+        data:{ labels:['тренд','флэт','расширение'], datasets:[{ data, backgroundColor:colors, borderColor:'#0a131c', borderWidth:2 }]},
+        options:{ plugins:{legend:{display:false}}, cutout:'65%' }
+      });
+    }
 
-  // Вероятности (грубая иллюстрация из режима)
-  const pTrend = mm==='trend'?100:0, pRange=mm==='range'?100:0, pExp=mm==='expansion'?100:0;
-  setProg('p_trend', pTrend);
-  setProg('p_range', pRange);
-  setProg('p_exp', pExp);
-  el('pie').style.background = `conic-gradient(var(--green) 0 ${pTrend*3.6}deg,
-                                               #a78bfa ${pTrend*3.6}deg ${(pTrend+pRange)*3.6}deg,
-                                               var(--yellow) ${(pTrend+pRange)*3.6}deg 360deg)`;
+    function escapeHtml(s){
+      return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]));
+    }
 
-  // Заметки (берём из F.note или из analysis.notes, затем фоллбэк)
-  const note = F.note || (snap.analysis && snap.analysis.notes) || '';
-  el('notes').textContent = (note && note!=='нет') ? note : '— нет заметок —';
+    // ---------- события ----------
+    $('#reload').addEventListener('click', load);
+    $('#auto').addEventListener('change', startAuto);
+    $('#symbol').addEventListener('keydown', e=>{ if(e.key==='Enter') load(); });
+    $('#tf').addEventListener('change', load);
 
-  renderSignals(F);
-  renderLevels(snap.lv || []);
-  renderPlaybook(snap.analysis?.playbook || []);
-}
-
-async function loadLatest(){
-  const q = `symbol=${encodeURIComponent(el('sym').value)}&tf=${encodeURIComponent(el('tf').value)}`;
-  const js = await jget(END_L+'?'+q);
-  if(js.status!=='ok'){ el('status').textContent='Ошибка ответа'; return; }
-  if(!js.found){ el('status').textContent='Нет данных'; return; }
-  renderTop(js);
-  el('status').textContent = `OK · snap #${js.snapshot_id}`;
-}
-function tick(){ loadLatest().catch(e=>{el('status').textContent='Ошибка: '+e}) }
-
-document.addEventListener('visibilitychange', ()=>{
-  if(document.hidden){ if(timer){clearInterval(timer); timer=null;} }
-  else if(el('auto').checked && !timer){ timer=setInterval(tick,5000); }
-});
-el('auto').addEventListener('change', ()=>{
-  if(el('auto').checked && !timer){ timer=setInterval(tick,5000); }
-  else if(!el('auto').checked && timer){ clearInterval(timer); timer=null; }
-});
-
-tick();
-if(el('auto').checked){ timer=setInterval(tick,5000); }
-</script>
+    // первый запуск
+    load();
+    startAuto();
+  </script>
 </body>
 </html>
