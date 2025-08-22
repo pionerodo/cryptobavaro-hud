@@ -1,0 +1,112 @@
+//@version=6
+indicator("HUD — v10.5 (1m/5m/15m/60m context)", overlay=true, max_labels_count=300, max_lines_count=300)
+
+// ---------- Inputs ----------
+tfHTF   = input.timeframe("15", "HTF для структуры/EMA")
+sendOnC = input.bool(true, "Отправлять снапшот на закрытии бара")
+manual  = input.bool(false, "Ручной снимок (галка)")
+idTag   = input.string("hud_v10_5", "ID тега")
+
+// ---------- Core ----------
+atrLen = 14
+atr    = ta.atr(atrLen)
+
+// RSI на нескольких ТФ
+rsi_1   = request.security(syminfo.tickerid, "1",  ta.rsi(close,14))
+rsi_5   = ta.rsi(close,14)
+rsi_15  = request.security(syminfo.tickerid, "15", ta.rsi(close,14))
+rsi_60  = request.security(syminfo.tickerid, "60", ta.rsi(close,14))
+
+// EMA‑структура (HTF 15m) + часовые EMA
+emaF_h  = request.security(syminfo.tickerid, tfHTF, ta.ema(close,50))
+emaS_h  = request.security(syminfo.tickerid, tfHTF, ta.ema(close,200))
+trendS  = emaF_h > emaS_h ? 1 : (emaF_h < emaS_h ? -1 : 0)
+strPow  = math.abs(emaF_h - emaS_h) / atr
+
+emaF_60 = request.security(syminfo.tickerid, "60", ta.ema(close,50))
+emaS_60 = request.security(syminfo.tickerid, "60", ta.ema(close,200))
+h1Align = emaF_60 > emaS_60 ? 1 : (emaF_60 < emaS_60 ? -1 : 0)
+
+// Диапазон/сжатие через Bollinger
+bbLen = 20
+bbMul = 2.0
+bbB   = ta.sma(close, bbLen)
+bbD   = ta.stdev(close, bbLen)
+bbU   = bbB + bbD*bbMul
+bbL   = bbB - bbD*bbMul
+bbW   = (bbU - bbL) / close
+bbR   = ta.percentrank(bbW, 200)
+
+isRange = (bbR <= 20)
+isExp   = (bbR >= 80)
+
+// Дневной VWAP
+isNewD = ta.change(time("D")) != 0
+var float dPV = na
+var float dV  = na
+var float dW  = na
+if barstate.isfirst or isNewD
+    dPV := hlc3 * volume
+    dV  := volume
+    dW  := dPV / math.max(dV,1)
+else
+    dPV += hlc3 * volume
+    dV  += volume
+    dW  := dPV / math.max(dV,1)
+distDayVWAPatr = math.abs(close - dW) / atr
+
+// ---------- Short reasons ----------
+string rs = "["
+int rc = 0
+addR(lbl) =>
+    rs := rs + (rc>0 ? "," : "") + "\"" + lbl + "\"",
+    rc += 1
+if isRange and rc < 6
+    addR("bb_sq")
+if isExp and rc < 6
+    addR("bb_exp")
+if trendS == 1 and rc < 6
+    addR("ema_up")
+if trendS == -1 and rc < 6
+    addR("ema_dn")
+if h1Align == 1 and rc < 6
+    addR("h1_up")
+if h1Align == -1 and rc < 6
+    addR("h1_dn")
+rs += "]"
+
+// ---------- Compact fields ----------
+fmt(x, n) =>
+    p = math.pow(10, n)
+    str.tostring(math.round(x * p) / p)
+
+string F = ""
+F += "\"r1\":"  + fmt(rsi_1,1)   + ","
+F += "\"r5\":"  + fmt(rsi_5,1)   + ","
+F += "\"r15\":" + fmt(rsi_15,1)  + ","
+F += "\"r60\":" + fmt(rsi_60,1)  + ","
+F += "\"ts\":"  + str.tostring(trendS) + ","
+F += "\"sp\":"  + fmt(strPow,2)  + ","
+F += "\"h1\":"  + str.tostring(h1Align) + ","
+F += "\"bbr\":" + fmt(bbR,2)     + ","
+F += "\"vw\":"  + fmt(distDayVWAPatr,2) + ","
+F += "\"rs\":"  + rs
+
+makeJSON() =>
+    string s = "{"
+    s += "\"id\":\"" + idTag + "\","
+    s += "\"t\":\"hud\","
+    s += "\"sym\":\"" + syminfo.ticker + "\","
+    s += "\"tf\":\"" + timeframe.period + "\","
+    s += "\"ts\":" + str.tostring(time) + ","
+    s += "\"p\":"  + fmt(close,2) + ","
+    s += "\"f\":{" + F + "}"
+    s += "}"
+    s
+
+emit = (sendOnC and barstate.isconfirmed) or (manual and not manual[1])
+if emit
+    alert(makeJSON(), alert.freq_once_per_bar_close)
+
+plotchar(emit, title="emit", char="●", location=location.top, color=color.new(color.green, 0), size=size.tiny)
+plot(dW, "Day VWAP", color=color.new(color.teal, 0))
