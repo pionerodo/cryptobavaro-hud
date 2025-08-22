@@ -5,3 +5,4 @@ Pipeline: TradingView (Pine) → Webhook (tvhook.php) → MySQL → API endpoint
 
 **Не коммитим:** `config.php` и всё, что в `.gitignore`.
 # cryptobavaro-hud
+# cryptobavaro-hud
