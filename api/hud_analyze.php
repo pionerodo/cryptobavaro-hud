@@ -5,40 +5,47 @@ require __DIR__ . '/db.php';
 $sym = isset($_GET['sym']) && $_GET['sym'] !== '' ? $_GET['sym'] : 'BTCUSDT';
 $tf  = isset($_GET['tf'])  && $_GET['tf']  !== '' ? $_GET['tf']  : '5';
 
-// 1) Пытаемся exact match (sym/tf). Если пусто — берём просто последний по tf, если и это пусто — последний вообще.
-function fetch_row($db, $sym, $tf){
-  $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE sym=? OR symbol=? AND tf=? ORDER BY ts DESC LIMIT 1");
-  $q->bind_param('ssi', $sym, $sym, $tf);
+/* 1) Берём последний снапшот: exact match по symbol+tf.
+      Если нет — по одному symbol. Если и это пусто — берём просто последний. */
+function fetch_last_snapshot($db, $sym, $tf) {
+  // exact match
+  $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1");
+  $q->bind_param('ss', $sym, $tf);
   $q->execute();
-  return $q->get_result()->fetch_assoc();
-}
-$row = fetch_row($db, $sym, $tf);
-if (!$row){
-  $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE tf=? ORDER BY ts DESC LIMIT 1");
-  $q->bind_param('i', $tf);
-  $q->execute();
-  $row = $q->get_result()->fetch_assoc();
-}
-if (!$row){
-  $q = $db->query("SELECT * FROM cbav_hud_snapshots ORDER BY ts DESC LIMIT 1");
-  $row = $q->fetch_assoc();
-}
-if (!$row){ echo json_encode(['ok'=>0,'err'=>'no snapshots']); exit; }
+  $r = $q->get_result()->fetch_assoc();
+  if ($r) return $r;
 
-// 2) Унифицируем payload для v10.4/v10.5 и разных схем таблицы
+  // только symbol
+  $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? ORDER BY ts DESC LIMIT 1");
+  $q->bind_param('s', $sym);
+  $q->execute();
+  $r = $q->get_result()->fetch_assoc();
+  if ($r) return $r;
+
+  // вообще любой последний
+  $q = $db->query("SELECT * FROM cbav_hud_snapshots ORDER BY ts DESC LIMIT 1");
+  return $q->fetch_assoc();
+}
+
+$row = fetch_last_snapshot($db, $sym, $tf);
+if (!$row) {
+  echo json_encode(['ok'=>0,'err'=>'no snapshots']); exit;
+}
+
+/* 2) Поля из таблицы */
 $ts     = (int)($row['ts'] ?? 0);
 $price  = isset($row['price']) ? (float)$row['price'] : 0.0;
-$symbol = $row['sym'] ?? ($row['symbol'] ?? 'BTCUSDT');
+$symbol = $row['symbol'] ?? 'BTCUSDT';
 $tfRow  = (string)($row['tf'] ?? $tf);
 $verCol = $row['ver'] ?? null;
 
+/* 3) Готовим payload: либо payload_json, либо схема features/levels/patterns */
 $payload = null;
 if (!empty($row['payload_json'])) {
   $payload = json_decode($row['payload_json'], true);
 }
 
 if (!$payload) {
-  // Схема с раздельными столбцами features/levels/patterns
   $features = [];
   if (!empty($row['features'])) {
     $tmp = json_decode($row['features'], true);
@@ -54,7 +61,6 @@ if (!$payload) {
     $tmp = json_decode($row['patterns'], true);
     if (is_array($tmp)) $patterns = $tmp;
   }
-  // Превращаем в «универсальный» payload, как если бы пришёл v10.4/10.5
   $payload = [
     'ver' => $verCol ?: '10.4',
     'id'  => $row['id_tag'] ?? 'hud_v10',
