@@ -2,9 +2,21 @@
 header('Content-Type: application/json; charset=utf-8');
 require __DIR__ . '/db.php';
 
+// Helpers
+function table_has_column($db, $table, $col){
+  $stmt = $db->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+  $stmt->bind_param('ss', $table, $col);
+  $stmt->execute();
+  $stmt->bind_result($cnt);
+  $stmt->fetch();
+  $stmt->close();
+  return ($cnt > 0);
+}
+
 $sym = isset($_GET['sym']) && $_GET['sym'] !== '' ? $_GET['sym'] : 'BTCUSDT';
 $tf  = isset($_GET['tf'])  && $_GET['tf']  !== '' ? $_GET['tf']  : '5';
 
+// ----- fetch last snapshot -----
 function fetch_last_snapshot($db, $sym, $tf) {
   $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1");
   $q->bind_param('ss', $sym, $tf);
@@ -29,6 +41,7 @@ $symbol = $row['symbol'] ?? 'BTCUSDT';
 $tfRow  = (string)($row['tf'] ?? $tf);
 $verCol = $row['ver'] ?? null;
 
+// reconstruct payload
 $payload = null;
 if (!empty($row['payload_json'])) {
   $payload = json_decode($row['payload_json'], true);
@@ -121,15 +134,20 @@ $summary =
 "## Что бы сделал я (итог)\n".
 "- Ждём вход в коридор сделки и подтверждения на 5m.\n";
 
-$stmt = $db->prepare(
- "INSERT INTO cbav_hud_analyses (ts,sym,tf,ver,prob_long,prob_short,summary_md,raw_json)
-  VALUES (?,?,?,?,?,?,?,?)
-  ON DUPLICATE KEY UPDATE ver=VALUES(ver),prob_long=VALUES(prob_long),
-  prob_short=VALUES(prob_short),summary_md=VALUES(summary_md),raw_json=VALUES(raw_json)"
-);
+// ----- INSERT into analyses with dynamic column name (sym vs symbol) -----
+$analyses_table = 'cbav_hud_analyses';
+$sym_col = table_has_column($db, $analyses_table, 'sym') ? 'sym' : (table_has_column($db, $analyses_table, 'symbol') ? 'symbol' : null);
+if ($sym_col === null){
+  echo json_encode(['ok'=>0,'err'=>'analyses table has neither sym nor symbol']); exit;
+}
+$sql = "INSERT INTO {$analyses_table} (ts,{$sym_col},tf,ver,prob_long,prob_short,summary_md,raw_json)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE ver=VALUES(ver),prob_long=VALUES(prob_long),
+        prob_short=VALUES(prob_short),summary_md=VALUES(summary_md),raw_json=VALUES(raw_json)";
+$stmt = $db->prepare($sql);
 $raw_json = json_encode(['payload'=>$payload], JSON_UNESCAPED_UNICODE);
 $stmt->bind_param('isssddss', $ts, $symbol, $tfRow, $ver, $probLong, $probShort, $summary, $raw_json);
 $ok = $stmt->execute();
 
-echo json_encode(['ok'=>$ok?1:0,'sym'=>$symbol,'tf'=>$tfRow,'ver'=>$ver,'prob_long'=>$probLong,'prob_short'=>$probShort]);
+echo json_encode(['ok'=>$ok?1:0,'sym'=>$symbol,'tf'=>$tfRow,'ver'=>$ver,'prob_long'=>$probLong,'prob_short'=>$probShort,'sym_col'=>$sym_col]);
 ?>
