@@ -17,7 +17,7 @@ rsi_5   = ta.rsi(close,14)
 rsi_15  = request.security(syminfo.tickerid, "15", ta.rsi(close,14))
 rsi_60  = request.security(syminfo.tickerid, "60", ta.rsi(close,14))
 
-// EMA‑структура (HTF 15m) + часовые EMA
+// EMA‑структура (HTF 15m) + час
 emaF_h  = request.security(syminfo.tickerid, tfHTF, ta.ema(close,50))
 emaS_h  = request.security(syminfo.tickerid, tfHTF, ta.ema(close,200))
 trendS  = emaF_h > emaS_h ? 1 : (emaF_h < emaS_h ? -1 : 0)
@@ -36,7 +36,6 @@ bbU   = bbB + bbD*bbMul
 bbL   = bbB - bbD*bbMul
 bbW   = (bbU - bbL) / close
 bbR   = ta.percentrank(bbW, 200)
-
 isRange = (bbR <= 20)
 isExp   = (bbR >= 80)
 
@@ -55,31 +54,34 @@ else
     dW  := dPV / math.max(dV,1)
 distDayVWAPatr = math.abs(close - dW) / atr
 
-// ---------- Short reasons ----------
-string rs = "["
-int rc = 0
-addR(lbl) =>
-    rs := rs + (rc>0 ? "," : "") + "\"" + lbl + "\"",
-    rc += 1
-if isRange and rc < 6
-    addR("bb_sq")
-if isExp and rc < 6
-    addR("bb_exp")
-if trendS == 1 and rc < 6
-    addR("ema_up")
-if trendS == -1 and rc < 6
-    addR("ema_dn")
-if h1Align == 1 and rc < 6
-    addR("h1_up")
-if h1Align == -1 and rc < 6
-    addR("h1_dn")
-rs += "]"
-
-// ---------- Compact fields ----------
 fmt(x, n) =>
     p = math.pow(10, n)
     str.tostring(math.round(x * p) / p)
 
+// ---------- Reasons (≤6) — без функций и мутабельности ----------
+string reasons = "["
+int rc = 0
+if isRange and rc < 6
+    reasons += (rc > 0 ? "," : "") + "\"bb_sq\""
+    rc += 1
+if isExp and rc < 6
+    reasons += (rc > 0 ? "," : "") + "\"bb_exp\""
+    rc += 1
+if trendS == 1 and rc < 6
+    reasons += (rc > 0 ? "," : "") + "\"ema_up\""
+    rc += 1
+if trendS == -1 and rc < 6
+    reasons += (rc > 0 ? "," : "") + "\"ema_dn\""
+    rc += 1
+if h1Align == 1 and rc < 6
+    reasons += (rc > 0 ? "," : "") + "\"h1_up\""
+    rc += 1
+if h1Align == -1 and rc < 6
+    reasons += (rc > 0 ? "," : "") + "\"h1_dn\""
+    rc += 1
+reasons += "]"
+
+// ---------- Features (compact) ----------
 string F = ""
 F += "\"r1\":"  + fmt(rsi_1,1)   + ","
 F += "\"r5\":"  + fmt(rsi_5,1)   + ","
@@ -90,11 +92,12 @@ F += "\"sp\":"  + fmt(strPow,2)  + ","
 F += "\"h1\":"  + str.tostring(h1Align) + ","
 F += "\"bbr\":" + fmt(bbR,2)     + ","
 F += "\"vw\":"  + fmt(distDayVWAPatr,2) + ","
-F += "\"rs\":"  + rs
+F += "\"rs\":"  + reasons
 
 makeJSON() =>
     string s = "{"
     s += "\"id\":\"" + idTag + "\","
+    s += "\"ver\":\"10.4\","  // фикс. версия протокола, как договорились
     s += "\"t\":\"hud\","
     s += "\"sym\":\"" + syminfo.ticker + "\","
     s += "\"tf\":\"" + timeframe.period + "\","
