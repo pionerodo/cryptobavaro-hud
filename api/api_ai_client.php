@@ -1,4 +1,4 @@
 <?php
 // simplified marker content
-echo "hud_api_strict.php ready";
+echo "ai_client.php ready";
 ?>
