@@ -1,4 +1,1 @@
-<?php
-// simplified marker content
-echo "hud_api_strict.php ready";
-?>
+<?php echo 'hud_api_strict works'; ?>
