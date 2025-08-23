@@ -1,37 +1,126 @@
 <!doctype html>
-<html lang="en">
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Cryptobavaro HUD</title>
-<style>
-body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:20px;line-height:1.35}
-.card{max-width:920px;margin:auto;border:1px solid #eee;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
-.h{font-size:18px;margin:18px 0 8px}
-pre{white-space:pre-wrap;background:#fafafa;border:1px solid #f0f0f0;border-radius:8px;padding:14px}
-.badge{display:inline-block;padding:4px 8px;border-radius:6px;background:#eef}
-.row{display:flex;gap:8px;align-items:center}
-button{padding:8px 12px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer}
-</style>
-<div class="card">
-  <div class="row">
-    <button id="refresh">Обновить</button>
-    <div id="ts" class="badge">—</div>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>HUD Dashboard</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#fafbfc; }
+    .card { background:#fff; max-width:980px; margin: 32px auto; padding:24px; border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,0.06); }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
+    .btn { border:1px solid #ddd; background:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; }
+    .btn:hover { background:#f3f4f6; }
+    h1 { margin:0 0 12px; font-size:28px; }
+    .muted { color:#667085; font-size:13px; }
+    .kvs { display:grid; grid-template-columns: 160px 1fr; gap:8px 12px; margin-top:12px; }
+    .pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:12px; }
+    .bar { height:12px; border-radius:999px; background:#eee; overflow:hidden; }
+    .bar > div { height:100%; }
+    .green { background:#10b981; }
+    .red { background:#ef4444; }
+    pre { background:#0b1020; color:#d1d5db; padding:12px; border-radius:8px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="row" style="align-items:center; justify-content:space-between;">
+      <h1>Анализ BTCUSDT (5m)</h1>
+      <div class="row">
+        <button class="btn" id="refresh">Обновить</button>
+      </div>
+    </div>
+    <div id="status" class="muted">Загрузка…</div>
+
+    <div id="content" style="display:none;">
+      <div class="kvs">
+        <div>Символ</div><div><span id="symbol" class="pill"></span></div>
+        <div>Версия</div><div id="ver">—</div>
+        <div>Время</div><div id="ts">—</div>
+        <div>Цена</div><div id="price">—</div>
+        <div>Режим</div><div id="regime">—</div>
+        <div>Смещение</div><div id="bias">—</div>
+        <div>Уверенность</div><div id="conf">—</div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <div class="muted" style="margin-bottom:6px;">Вероятности</div>
+        <div class="bar"><div id="bar-long" class="green" style="width:0%"></div></div>
+        <div class="muted" style="margin-top:4px;">Long: <span id="probL">0</span>% &nbsp; | &nbsp; Short: <span id="probS">0</span>%</div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <div class="muted" style="margin-bottom:6px;">Краткий вывод</div>
+        <div id="summary">—</div>
+      </div>
+
+      <details style="margin-top:16px;">
+        <summary>Сырой JSON</summary>
+        <pre id="raw"></pre>
+      </details>
+    </div>
   </div>
-  <h2>Анализ BTCUSDT (5m)</h2>
-  <div id="content"><em>Загрузка…</em></div>
-</div>
+
 <script>
-async function load(){
-  const r = await fetch('/api/hud_api.php?cmd=latest&sym=BTCUSDT&tf=5');
-  const j = await r.json();
-  const c = document.getElementById('content');
-  if(!j.ok || !j.data){ c.innerHTML = '<b>Нет данных</b>'; return; }
-  const d = j.data;
-  const dt = new Date(parseInt(d.ts)).toLocaleString();
-  document.getElementById('ts').textContent = dt+' UTC';
-  c.innerHTML = `<pre>${d.summary_md}</pre>`;
+async function fetchLatest() {
+  const r = await fetch('/api/hud_api.php?cmd=latest&sym=BTCUSDT&tf=5', {cache:'no-store'});
+  const js = await r.json();
+  const st = document.getElementById('status');
+  const content = document.getElementById('content');
+  if (!js.ok || !js.data) {
+    st.textContent = 'Нет данных';
+    content.style.display = 'none';
+    return;
+  }
+  const d = js.data;
+  st.textContent = '';
+  content.style.display = 'block';
+
+  const toPct = (v) => {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
+    return null;
+  };
+
+  document.getElementById('symbol').textContent = d.symbol || '—';
+  document.getElementById('ver').textContent = d.ver || '—';
+  const t = (d.ts) ? new Date(Number(d.ts)).toISOString().replace('T',' ').replace('.000Z',' UTC') : '—';
+  document.getElementById('ts').textContent = t;
+  document.getElementById('price').textContent = (d.price ? Number(d.price).toLocaleString('en-US', {maximumFractionDigits:2}) : '—');
+
+  let result = d.result || null;
+  if (!result && d.result_json) {
+    try { result = JSON.parse(d.result_json); } catch (e) {}
+  }
+  document.getElementById('raw').textContent = JSON.stringify(d, null, 2);
+
+  let regime='—', bias='—', conf='—', summary='—', pL=null, pS=null;
+  if (result) {
+    if (result.regime) regime = result.regime;
+    if (result.bias) bias = result.bias;
+    if (result.confidence !== undefined) conf = result.confidence;
+    if (result.summary) summary = result.summary;
+    if (result.prob_long !== undefined) pL = result.prob_long;
+    if (result.prob_short !== undefined) pS = result.prob_short;
+  }
+  // Fallback from columns if present
+  if (!summary && d.summary_md) summary = d.summary_md;
+  if (pL===null && d.prob_long!==undefined) pL = d.prob_long;
+  if (pS===null && d.prob_short!==undefined) pS = d.prob_short;
+
+  document.getElementById('regime').textContent = regime;
+  document.getElementById('bias').textContent = bias;
+  document.getElementById('conf').textContent = (conf !== '—') ? (conf + '%') : '—';
+  const pL2 = toPct(pL) ?? 0;
+  const pS2 = toPct(pS) ?? 0;
+  document.getElementById('probL').textContent = pL2;
+  document.getElementById('probS').textContent = pS2;
+  document.getElementById('bar-long').style.width = pL2 + '%';
+  document.getElementById('summary').textContent = summary || '—';
 }
-document.getElementById('refresh').onclick = load;
-load();
+
+document.getElementById('refresh').addEventListener('click', fetchLatest);
+fetchLatest();
 </script>
+</body>
 </html>
