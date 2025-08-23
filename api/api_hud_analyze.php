@@ -1,166 +1,139 @@
 <?php
-/**
- * Adaptive analyzer inserter for CryptoBavaro HUD.
- * - Picks the latest snapshot for given sym/tf (or overall if not provided)
- * - Detects existing column names in cbav_hud_analyses (sym/symbol, ver, result_json/summary_md/raw_json)
- * - Inserts a minimal analysis row with snapshot_id so schema constraints are satisfied
- *
- * Usage:
- *   CLI: php hud_analyze.php sym=BTCUSDT tf=5
- *   Web: /api/hud_analyze.php?sym=BTCUSDT&tf=5
- */
+// api/hud_analyze.php — run AI analysis for a snapshot and store into cbav_hud_analyses
+// This version aligns ALL time to UTC:
+//  - MySQL session is UTC (via api/db.php)
+//  - analyzed_at is written with gmdate(...) (UTC)
+//  - ts is stored from snapshot (already in ms UTC)
+
 header('Content-Type: application/json; charset=utf-8');
+require __DIR__ . '/db.php';
 
-// ----------------- Helpers -----------------
-function arg_get($key, $default=null) {
-  // From GET
-  if (isset($_GET[$key]) && $_GET[$key] !== '') return $_GET[$key];
-  // From CLI "key=value"
-  global $argv;
-  if (isset($argv) && is_array($argv)) {
-    foreach ($argv as $a) {
-      if (strpos($a, '=') !== false) {
-        list($k,$v) = explode('=', $a, 2);
-        if ($k === $key) return $v;
-      }
-    }
-  }
-  return $default;
-}
-
-function fatal($msg, $ctx = []) {
-  http_response_code(500);
-  echo json_encode(['ok'=>false, 'error'=>$msg, 'ctx'=>$ctx], JSON_UNESCAPED_UNICODE);
-  exit;
-}
-
-function has_col($db, $table, $col) {
-  $res = $db->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
-  $res->bind_param('s', $col);
-  $res->execute();
-  $r = $res->get_result();
-  return $r && $r->num_rows > 0;
-}
-
-// ----------------- DB connect -----------------
-require __DIR__ . '/db.php'; // must set $db or constants
-
-if (!isset($db) || !($db instanceof mysqli)) {
-  // try WP constants if available
-  if (defined('DB_HOST')) {
-    $host = DB_HOST;
-    $user = defined('DB_USER') ? DB_USER : (defined('DB_USERNAME') ? DB_USERNAME : '');
-    $pass = defined('DB_PASSWORD') ? DB_PASSWORD : '';
-    $name = defined('DB_NAME') ? DB_NAME : '';
-    $db = @new mysqli($host, $user, $pass, $name);
-  }
-}
-
-if (!($db instanceof mysqli) || $db->connect_errno) {
-  fatal('DB connect failed', ['errno'=>($db?$db->connect_errno:null), 'error'=>($db?$db->connect_error:null)]);
-}
-$db->set_charset('utf8mb4');
-
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-// ----------------- Params -----------------
-$symIn = arg_get('sym', arg_get('symbol', ''));
-$tf = intval(arg_get('tf', 5));
-
-// Normalize incoming symbols the same way webhook does
+// ---- Helpers ----
 function normalize_symbol($s) {
-  $s = trim($s);
-  if ($s === '') return $s;
-  // Map BTCUSDT.P and BTCUSDT -> BINANCE:BTCUSDT
-  if (preg_match('/^([A-Z]+USDT)(?:\.P)?$/', $s, $m)) {
-    return 'BINANCE:' . $m[1];
-  }
-  // Already BINANCE:XXX
-  if (strpos($s, 'BINANCE:') === 0) return $s;
-  return $s;
+    $s = trim((string)$s);
+    if ($s === '') return 'BINANCE:BTCUSDT';
+    // If already in vendor:symbol form — keep
+    if (strpos($s, ':') !== false) return strtoupper($s);
+    // TradingView paper suffix -> BINANCE: spot form
+    $s = strtoupper($s);
+    $s = str_replace('.P', '', $s);
+    if ($s === 'BTCUSDT') return 'BINANCE:BTCUSDT';
+    return 'BINANCE:' . $s;
+}
+function json_reply($arr) {
+    echo json_encode($arr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
-$normSym = normalize_symbol($symIn);
+// ---- Input ----
+$snapshot_id = isset($_GET['snapshot_id']) ? intval($_GET['snapshot_id']) : 0;
+$symParam    = isset($_GET['sym']) ? $_GET['sym'] : '';
+$tfParam     = isset($_GET['tf']) ? intval($_GET['tf']) : 0;
 
-// ----------------- Choose snapshot -----------------
-function fetch_last_snapshot($db, $normSym, $tf) {
-  // exact match by symbol & tf
-  if ($normSym !== '') {
-    $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? AND tf=? ORDER BY ts DESC, id DESC LIMIT 1");
-    $q->bind_param('si', $normSym, $tf);
+$db = db();
+
+// ---- Select snapshot ----
+if ($snapshot_id > 0) {
+    $q = $db->prepare("SELECT id, symbol, tf, ver, ts, price, features FROM cbav_hud_snapshots WHERE id=?");
+    $q->bind_param('i', $snapshot_id);
     $q->execute();
-    $r = $q->get_result();
-    if ($row = $r->fetch_assoc()) return $row;
+    $snap = $q->get_result()->fetch_assoc();
+    if (!$snap) jerr(404, 'Snapshot not found: ' . $snapshot_id);
+} else {
+    // Optional exact filter by symbol/tf if provided
+    $clauses = [];
+    $types = '';
+    $vals = [];
 
-    // only symbol
-    $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? ORDER BY ts DESC, id DESC LIMIT 1");
-    $q->bind_param('s', $normSym);
+    if ($symParam !== '') {
+        $symN = normalize_symbol($symParam);
+        $clauses[] = "symbol=?";
+        $types    .= 's';
+        $vals[]    = $symN;
+    }
+    if ($tfParam > 0) {
+        $clauses[] = "tf=?";
+        $types    .= 'i';
+        $vals[]    = $tfParam;
+    }
+    $sql = "SELECT id, symbol, tf, ver, ts, price, features
+            FROM cbav_hud_snapshots " . (count($clauses) ? ('WHERE ' . implode(' AND ', $clauses)) : '') . "
+            ORDER BY id DESC LIMIT 1";
+    $q = $db->prepare($sql);
+    if ($types !== '') { $q->bind_param($types, ...$vals); }
     $q->execute();
-    $r = $q->get_result();
-    if ($row = $r->fetch_assoc()) return $row;
-  }
-
-  // Any latest
-  $r = $db->query("SELECT * FROM cbav_hud_snapshots ORDER BY ts DESC, id DESC LIMIT 1");
-  return $r->fetch_assoc();
+    $snap = $q->get_result()->fetch_assoc();
+    if (!$snap) jerr(404, 'No snapshots found');
+    $snapshot_id = intval($snap['id']);
 }
 
-$snap = fetch_last_snapshot($db, $normSym, $tf);
-if (!$snap) fatal('No snapshots found');
+$symbol = $snap['symbol'];
+$tf     = intval($snap['tf']);
+$ver    = (string)$snap['ver'];
+$ts     = intval($snap['ts']);
+$price  = floatval($snap['price']);
 
-// ----------------- Detect analysis table schema -----------------
-$table = 'cbav_hud_analyses';
-$has_sym    = has_col($db, $table, 'sym');
-$has_symbol = has_col($db, $table, 'symbol');
-$has_ver    = has_col($db, $table, 'ver');
-$has_ts     = has_col($db, $table, 'ts');
-$has_prob_l = has_col($db, $table, 'prob_long');
-$has_prob_s = has_col($db, $table, 'prob_short');
-$has_notes  = has_col($db, $table, 'notes');
-$has_summary= has_col($db, $table, 'summary_md');
-$has_raw    = has_col($db, $table, 'raw_json');
-$has_result = has_col($db, $table, 'result_json');
+$symbolNorm = normalize_symbol($symbol);
 
-// Build column list
-$cols = ['snapshot_id','tf'];
-$vals = [$snap['id'], intval($snap['tf'])];
-$types = 'ii';
-
-if ($has_ts)    { $cols[]='ts';    $vals[] = intval($snap['ts']); $types.='i'; }
-if ($has_ver)   { $cols[]='ver';   $vals[] = (string)($snap['ver'] ?? '10.4'); $types.='s'; }
-
-// Prefer to fill both 'sym' and 'symbol' if exist. Use the same normalized value.
-$norm = (string)$snap['symbol'];
-if ($has_sym)    { $cols[]='sym';    $vals[] = $norm; $types.='s'; }
-if ($has_symbol) { $cols[]='symbol'; $vals[] = $norm; $types.='s'; }
-
-// Minimal "analysis" payload – stub; UI needs something JSON-like
-$payload = [
-  'regime'     => 'trend',
-  'bias'       => 'neutral',
-  'confidence' => 43,
-  'meta'       => ['source'=>'hud_analyze.php', 'ts'=>$snap['ts'], 'tf'=>intval($snap['tf'])]
+// ---- Dummy AI analysis (placeholder) ----
+// You can swap this block for real LLM call later.
+$features = @json_decode($snap['features'], true);
+$atr = null;
+if (is_array($features) && isset($features['atr'])) {
+    $atr = floatval($features['atr']);
+}
+$result = [
+    'regime'      => 'trend',
+    'bias'        => 'neutral',
+    'confidence'  => 55,
+    'atr'         => $atr,
 ];
-$json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+$result_json = json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-// Where to store JSON? Prefer result_json; fall back to raw_json or notes/summary_md.
-if ($has_result) { $cols[]='result_json'; $vals[]=$json; $types.='s'; }
-elseif ($has_raw){ $cols[]='raw_json';    $vals[]=$json; $types.='s'; }
-elseif ($has_summary){ $cols[]='summary_md'; $vals[]=$json; $types.='s'; }
-elseif ($has_notes){ $cols[]='notes'; $vals[]=$json; $types.='s'; }
+// ---- Write analysis in UTC ----
+$analyzed_at = gmdate('Y-m-d H:i:s'); // UTC
+$notes       = 'auto';
+$prob_long   = 0.00;
+$prob_short  = 0.00;
+$summary_md  = null;
 
-if ($has_prob_l) { $cols[]='prob_long';  $vals[]=0.00; $types.='d'; }
-if ($has_prob_s) { $cols[]='prob_short'; $vals[]=0.00; $types.='d'; }
-
-// ----------------- INSERT -----------------
-$colList = '`' . implode('`,`', $cols) . '`';
-$qs = implode(',', array_fill(0, count($cols), '?'));
-$sql = "INSERT INTO `$table` ($colList) VALUES ($qs)";
+$sql = "INSERT INTO cbav_hud_analyses
+          (snapshot_id, analyzed_at, symbol, tf, ver, ts, sym, result_json, notes, prob_long, prob_short, summary_md)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
 $stmt = $db->prepare($sql);
+if (!$stmt) jerr(500, 'Prepare failed: ' . $db->error);
 
-// bind dynamically
-$stmt->bind_param($types, ...$vals);
-$stmt->execute();
+// i s s i s i s s s d d s
+$stmt->bind_param(
+    'issisisssdds',
+    $snapshot_id,
+    $analyzed_at,
+    $symbolNorm,  // symbol
+    $tf,
+    $ver,
+    $ts,
+    $symbolNorm,  // sym
+    $result_json,
+    $notes,
+    $prob_long,
+    $prob_short,
+    $summary_md
+);
 
-$aid = $stmt->insert_id;
-echo json_encode(['ok'=>true, 'analysis_id'=>$aid, 'snapshot_id'=>intval($snap['id'])], JSON_UNESCAPED_UNICODE);
+if (!$stmt->execute()) {
+    jerr(500, 'Execute failed: ' . $stmt->error);
+}
+
+$analysis_id = $stmt->insert_id;
+
+json_reply([
+    'ok'          => true,
+    'analysis_id' => $analysis_id,
+    'snapshot_id' => $snapshot_id,
+    'symbol'      => $symbolNorm,
+    'tf'          => $tf,
+    'result'      => $result,
+    'price'       => $price,
+    'atr'         => $atr
+]);
+?>

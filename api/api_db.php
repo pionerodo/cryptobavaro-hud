@@ -1,29 +1,36 @@
 <?php
-// api/db.php — подключение к БД через креды WordPress (если есть).
-function wp_creds_from_config($path){
-  if (!file_exists($path)) return null;
-  $txt = file_get_contents($path);
-  $creds = [];
-  foreach (['DB_NAME','DB_USER','DB_PASSWORD','DB_HOST'] as $k){
-    if (preg_match("/define\(\s*'".$k."'\s*,\s*'([^']*)'\s*\)\s*;/", $txt, $m)){
-      $creds[$k] = $m[1];
-    }
-  }
-  return (count($creds)===4) ? $creds : null;
+// api/db.php — DB connector (UTC enforced)
+// Loads WordPress DB credentials and opens mysqli connection.
+// Sets MySQL session time_zone to UTC so all DATETIME/TIMESTAMP work in UTC.
+
+header('Content-Type: application/json; charset=utf-8');
+
+// Locate wp-config.php (one level up from /api)
+$wp_config = dirname(__DIR__) . '/wp-config.php';
+if (!file_exists($wp_config)) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'wp-config.php not found'], JSON_UNESCAPED_UNICODE);
+    exit;
 }
-$root = dirname(__DIR__);
-$wp   = $root . '/wp-config.php';
-$C    = wp_creds_from_config($wp);
-$dbname = $C['DB_NAME']     ?? 'crypto_wp';
-$dbuser = $C['DB_USER']     ?? 'root';
-$dbpass = $C['DB_PASSWORD'] ?? '';
-$dbhost = $C['DB_HOST']     ?? '127.0.0.1';
-$db = @new mysqli($dbhost, $dbuser, $dbpass, $dbname);
-if ($db->connect_errno){
-  http_response_code(500);
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode(['ok'=>0,'err'=>'db connect','code'=>$db->connect_errno,'msg'=>$db->connect_error]);
-  exit;
+// Pull DB constants
+include_once $wp_config;
+
+$db = @new mysqli(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME);
+if ($db->connect_errno) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'DB connect error: ' . $db->connect_error], JSON_UNESCAPED_UNICODE);
+    exit;
 }
 $db->set_charset('utf8mb4');
+
+// 🔒 Force UTC for this session
+$db->query("SET time_zone = '+00:00'");
+
+// Small helpers
+function db() { global $db; return $db; }
+function jerr($code, $msg) {
+    http_response_code($code);
+    echo json_encode(['ok' => false, 'error' => $msg], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 ?>
