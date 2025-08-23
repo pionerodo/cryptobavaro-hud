@@ -1,1 +1,95 @@
-<html><body>HUD Dashboard</body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HUD Dashboard</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;margin:24px;background:#0b0c10;color:#e6edf3}
+    .card{background:#11141a;border:1px solid #232a36;border-radius:14px;padding:16px;margin:12px 0}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    input,select,button{background:#0f1320;color:#e6edf3;border:1px solid #2b3547;border-radius:10px;padding:8px 10px}
+    button{cursor:pointer}
+    .muted{color:#95a1b2;font-size:12px}
+    pre{white-space:pre-wrap;word-wrap:break-word;background:#0b0e16;border:1px solid #1f2740;border-radius:12px;padding:12px;max-height:360px;overflow:auto}
+    .pill{display:inline-block;border:1px solid #2b3547;background:#0f1320;padding:2px 8px;border-radius:40px;margin-right:4px;font-size:12px}
+  </style>
+</head>
+<body>
+  <h1 style="margin:0 0 8px 0;">HUD Dashboard</h1>
+  <div class="muted" style="margin-bottom:20px;">Ручной запрос к ChatGPT для интерпретации данных + «сигналы входа» по требованию.</div>
+
+  <div class="card">
+    <div class="row">
+      <div class="pill">Текущий анализ</div>
+      <label>Пара <input id="sym" value="BINANCE:BTCUSDT" size="18"></label>
+      <label>TF
+        <select id="tf">
+          <option value="5">5m</option>
+          <option value="15">15m</option>
+          <option value="60">1h</option>
+        </select>
+      </label>
+      <button id="btnNow">Получить анализ</button>
+      <span id="statusNow" class="muted"></span>
+    </div>
+    <pre id="outNow">Нажми «Получить анализ».</pre>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="pill">Сигнал входа</div>
+      <label>Пара <input id="sym2" value="BINANCE:BTCUSDT" size="18"></label>
+      <label>TF
+        <select id="tf2">
+          <option value="5">5m</option>
+          <option value="15">15m</option>
+          <option value="60">1h</option>
+        </select>
+      </label>
+      <button id="btnEdge">Проверить «коридор сделки»</button>
+      <span id="statusEdge" class="muted"></span>
+    </div>
+    <pre id="outEdge">Нажми «Проверить» для запроса ChatGPT о коридоре входа.</pre>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="pill">Сырые данные</div>
+      <button id="btnRaw">Последние записи (строго UTC)</button>
+      <span id="statusRaw" class="muted"></span>
+    </div>
+    <pre id="outRaw">Нажми «Последние записи», чтобы посмотреть, что отдает API.</pre>
+  </div>
+
+<script>
+async function call(url, params, targetEl, statusEl){
+  statusEl.textContent = 'Загружаю…';
+  targetEl.textContent = '';
+  try{
+    const qs = new URLSearchParams(params);
+    const r = await fetch(url + '?' + qs.toString(), {cache:'no-store'});
+    const data = await r.json();
+    targetEl.textContent = JSON.stringify(data, null, 2);
+    statusEl.textContent = 'OK';
+  }catch(e){
+    statusEl.textContent = 'Ошибка';
+    targetEl.textContent = String(e);
+  }
+}
+
+document.getElementById('btnNow').onclick = () => {
+  call('/api/hud_ai.php', {mode:'now', sym:document.getElementById('sym').value, tf:document.getElementById('tf').value},
+       document.getElementById('outNow'), document.getElementById('statusNow'));
+};
+document.getElementById('btnEdge').onclick = () => {
+  call('/api/hud_ai.php', {mode:'edge', sym:document.getElementById('sym2').value, tf:document.getElementById('tf2').value},
+       document.getElementById('outEdge'), document.getElementById('statusEdge'));
+};
+document.getElementById('btnRaw').onclick = () => {
+  call('/api/hud_api_strict.php', {sym:'BINANCE:BTCUSDT', tf:'5', limit:10},
+       document.getElementById('outRaw'), document.getElementById('statusRaw'));
+};
+</script>
+</body>
+</html>
