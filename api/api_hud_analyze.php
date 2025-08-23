@@ -1,84 +1,106 @@
 <?php
+// hud_analyze.php — adaptive INSERT with snapshot_id (fixes ER_NO_DEFAULT_FOR_FIELD)
+// Usage (CLI or web): php hud_analyze.php [or] /api/hud_analyze.php?sym=BTCUSDT&tf=5
 header('Content-Type: application/json; charset=utf-8');
-require __DIR__ . '/db.php'; // $db mysqli
+require __DIR__ . '/db.php';
 
-function normalize_symbol($s){
-  if (!$s) return null;
-  $s = strtoupper($s);
-  $s = preg_replace('/\.P$/','',$s);
-  if (strpos($s, ':') === false) { $s = 'BINANCE:'.$s; }
-  return $s;
+function logmsg($s) {
+    $log = '/www/wwwroot/cryptobavaro.online/logs/analyze.log';
+    @file_put_contents($log, '[' . gmdate('c') . "] hud_analyze: $s\n", FILE_APPEND);
 }
 
-$sym_q = isset($_GET['sym']) && $_GET['sym'] !== '' ? $_GET['sym'] : 'BTCUSDT';
-$tf_q  = isset($_GET['tf'])  && $_GET['tf']  !== '' ? $_GET['tf']  : '5';
-$symbol_norm = normalize_symbol($sym_q);
+function table_columns(mysqli $db, string $table): array {
+    $cols = [];
+    if ($res = $db->query("SHOW COLUMNS FROM {$table}")) {
+        while ($r = $res->fetch_assoc()) $cols[] = $r['Field'];
+        $res->free();
+    }
+    return $cols;
+}
 
-$db->set_charset('utf8mb4');
+// Нормализация тикера из любых вариантов в формат, принятыый в БД снапшотов
+function norm_sym(string $s): string {
+    $u = strtoupper(trim($s));
+    if ($u === '' || $u === 'BTCUSDT' || $u === 'BTCUSDT.P' || $u === 'USDT_PERP:BTCUSDT') return 'BINANCE:BTCUSDT';
+    return $u;
+}
 
-// 1) fetch latest snapshot by normalized or raw symbol
-$q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE (symbol=? OR symbol=?) AND tf=? ORDER BY ts DESC LIMIT 1");
-$q->bind_param('sss', $symbol_norm, $sym_q, $tf_q);
+// Входные параметры (опционально)
+$sym_in = isset($_GET['sym']) ? $_GET['sym'] : (isset($argv[1]) ? $argv[1] : 'BTCUSDT.P');
+$tf     = isset($_GET['tf'])  ? intval($_GET['tf']) : (isset($argv[2]) ? intval($argv[2]) : 5);
+$sym_db = norm_sym($sym_in);
+
+// 1) Берём последний снапшот по symbol+tf (как хранится в cbav_hud_snapshots)
+$q = $db->prepare("SELECT id, ts, symbol, tf, ver, price, features FROM cbav_hud_snapshots WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1");
+$q->bind_param('si', $sym_db, $tf);
 $q->execute();
-$sn = $q->get_result()->fetch_assoc();
+$snap = $q->get_result()->fetch_assoc();
 $q->close();
 
-if (!$sn){
-  // fallback: just latest
-  $q = $db->query("SELECT * FROM cbav_hud_snapshots ORDER BY ts DESC LIMIT 1");
-  $sn = $q->fetch_assoc();
+if (!$snap) {
+    logmsg("no snapshot found for sym={$sym_db}, tf={$tf}");
+    echo json_encode(['ok'=>false, 'error'=>'no_snapshot']);
+    exit;
 }
 
-if (!$sn){ echo json_encode(["ok"=>0,"err"=>"no snapshots"]); exit; }
-
-// Fake analysis result (placeholder, replace with AI call later)
-$prob_long = 0.00; $prob_short = 0.00;
-$result = [
-  "regime" => "trend",
-  "bias" => "neutral",
-  "confidence" => 43
+// 2) Простейший анализ (заглушка — чтобы UI начал жить)
+$analysis = [
+    'regime'     => 'trend',
+    'bias'       => 'neutral',
+    'confidence' => 43,
+    'price'      => floatval($snap['price'])
 ];
 
-// Adaptive insert into cbav_hud_analyses
-$cols = [];
-$res = $db->query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME='cbav_hud_analyses'");
-while($row = $res->fetch_assoc()){ $cols[$row['COLUMN_NAME']] = true; }
-$res->free();
+// 3) Адаптивная вставка в cbav_hud_analyses (с учётом реальной схемы)
+$cols = table_columns($db, 'cbav_hud_analyses');
+$use  = [];   // имена колонок
+$bind = '';   // строка типов для bind_param
+$vals = [];   // значения
 
-$data = [
-  "snapshot_id" => $sn["id"],
-  "analyzed_at" => date("Y-m-d H:i:s"),
-  "symbol"      => $sn["symbol"],
-  "tf"          => $sn["tf"],
-  "ver"         => isset($sn["ver"])? $sn["ver"] : "10.4",
-  "ts"          => $sn["ts"],
-  "sym"         => $sn["symbol"],
-  "result_json" => json_encode($result, JSON_UNESCAPED_UNICODE),
-  "prob_long"   => $prob_long,
-  "prob_short"  => $prob_short,
-];
-
-$insCols = []; $placeholders = []; $types = ""; $values = [];
-foreach($data as $k=>$v){
-  if (isset($cols[$k])) {
-    $insCols[] = $k;
-    $placeholders[] = "?";
-    if (is_int($v)) $types .= "i";
-    else if (is_float($v)) $types .= "d";
-    else $types .= "s";
-    $values[] = $v;
-  }
+// Критично: snapshot_id (чтобы не было ER_NO_DEFAULT_FOR_FIELD)
+if (in_array('snapshot_id', $cols, true)) {
+    $use[] = 'snapshot_id'; $bind .= 'i'; $vals[] = intval($snap['id']);
 }
 
-$sql = "INSERT INTO cbav_hud_analyses (" . implode(",", $insCols) . ") VALUES (" . implode(",", $placeholders) . ")";
+// sym / symbol — сколько есть, столько и пишем
+if (in_array('sym', $cols, true))    { $use[] = 'sym';    $bind .= 's'; $vals[] = $sym_db; }
+if (in_array('symbol', $cols, true)) { $use[] = 'symbol'; $bind .= 's'; $vals[] = $sym_db; }
+
+if (in_array('tf', $cols, true))  { $use[] = 'tf';  $bind .= 'i'; $vals[] = intval($tf); }
+if (in_array('ver', $cols, true)) { $use[] = 'ver'; $bind .= 's'; $vals[] = strval($snap['ver']); }
+if (in_array('ts', $cols, true))  { $use[] = 'ts';  $bind .= 'i'; $vals[] = intval($snap['ts']); }
+
+if (in_array('result_json', $cols, true)) { $use[] = 'result_json'; $bind .= 's'; $vals[] = json_encode($analysis, JSON_UNESCAPED_UNICODE); }
+if (in_array('summary_md', $cols, true))  { $use[] = 'summary_md';  $bind .= 's'; $vals[] = "Auto-analysis v" . strval($snap['ver']) . " demo"; }
+if (in_array('prob_long', $cols, true))   { $use[] = 'prob_long';   $bind .= 'd'; $vals[] = 0.50; }
+if (in_array('prob_short', $cols, true))  { $use[] = 'prob_short';  $bind .= 'd'; $vals[] = 0.50; }
+if (in_array('notes', $cols, true))       { $use[] = 'notes';       $bind .= 's'; $vals[] = 'ok'; }
+
+if (empty($use)) {
+    logmsg('No suitable columns to insert into cbav_hud_analyses');
+    echo json_encode(['ok'=>false, 'error'=>'no_columns']);
+    exit;
+}
+
+$placeholders = implode(',', array_fill(0, count($use), '?'));
+$sql = "INSERT INTO cbav_hud_analyses (" . implode(',', $use) . ") VALUES ($placeholders)";
 $stmt = $db->prepare($sql);
-if (!$stmt){ echo json_encode(["ok"=>0,"err"=>"prepare failed","sql"=>$sql]); exit; }
 
-$stmt->bind_param($types, ...$values);
-$ok = $stmt->execute();
-if (!$ok){ echo json_encode(["ok"=>0,"err"=>"execute failed","sql"=>$sql, "errm"=>$stmt->error]); exit; }
+// Совместимый bind_param
+$params = array_merge([$bind], $vals);
+$tmp = [];
+foreach ($params as $key => $value) { $tmp[$key] = $value; }
+$refs = [];
+foreach ($tmp as $key => &$value) { $refs[$key] =& $value; }
+call_user_func_array([$stmt, 'bind_param'], $refs);
 
-$id = $stmt->insert_id;
-$stmt->close();
+if (!$stmt->execute()) {
+    logmsg('INSERT failed: ' . $stmt->error);
+    echo json_encode(['ok'=>false, 'error'=>'insert_failed', 'details'=>$stmt->error]);
+    exit;
+}
 
-echo json_encode(["ok"=>1, "analysis_id"=>$id, "used_cols"=>$insCols, "symbol_used"=>$sn["symbol"], "tf"=>$sn["tf"]]);
+$analysis_id = $db->insert_id;
+logmsg("inserted analysis id={$analysis_id} for snapshot_id=" . intval($snap['id']));
+echo json_encode(['ok'=>true, 'analysis_id'=>$analysis_id, 'snapshot_id'=>intval($snap['id'])]);
+?>
