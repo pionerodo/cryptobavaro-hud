@@ -24,6 +24,7 @@ $dbpass = $C['DB_PASSWORD'] ?? '';
 $dbhost = $C['DB_HOST']     ?? '127.0.0.1';
 
 $db = @new mysqli($dbhost, $dbuser, $dbpass, $dbname);
+$db->query("SET time_zone = '+00:00'");
 if ($db->connect_errno){
   http_response_code(500);
   header('Content-Type: application/json; charset=utf-8');
