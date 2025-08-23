@@ -1,150 +1,143 @@
 <?php
+/**
+ * /api/hud_analyze.php
+ * Picks the latest snapshot (or a specific snapshot_id), runs a lightweight rules-based
+ * analysis (placeholder for AI), and stores the result to cbav_hud_analyses.
+ *
+ * Robust to schema differences: detects available columns and inserts only those.
+ *
+ * Usage examples:
+ *   php hud_analyze.php
+ *   php hud_analyze.php sym=BTCUSDT tf=5
+ *   php hud_analyze.php snapshot_id=141
+ *   https://.../api/hud_analyze.php?sym=BTCUSDT.P&tf=5
+ */
+
 header('Content-Type: application/json; charset=utf-8');
-require __DIR__ . '/db.php';
 
-$sym = isset($_GET['sym']) && $_GET['sym'] !== '' ? $_GET['sym'] : 'BTCUSDT';
-$tf  = isset($_GET['tf'])  && $_GET['tf']  !== '' ? $_GET['tf']  : '5';
+require __DIR__ . '/db.php'; // expects $db (mysqli)
 
-/* 1) Берём последний снапшот: exact match по symbol+tf.
-      Если нет — по одному symbol. Если и это пусто — берём просто последний. */
-function fetch_last_snapshot($db, $sym, $tf) {
-  // exact match
-  $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1");
-  $q->bind_param('ss', $sym, $tf);
-  $q->execute();
-  $r = $q->get_result()->fetch_assoc();
-  if ($r) return $r;
-
-  // только symbol
-  $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? ORDER BY ts DESC LIMIT 1");
-  $q->bind_param('s', $sym);
-  $q->execute();
-  $r = $q->get_result()->fetch_assoc();
-  if ($r) return $r;
-
-  // вообще любой последний
-  $q = $db->query("SELECT * FROM cbav_hud_snapshots ORDER BY ts DESC LIMIT 1");
-  return $q->fetch_assoc();
+function arg($k, $def=null) {
+    if (php_sapi_name() === 'cli') {
+        global $argv;
+        foreach ($argv as $a) {
+            if (strpos($a, '=') !== false) {
+                [$kk, $vv] = explode('=', $a, 2);
+                if ($kk === $k) return $vv;
+            }
+        }
+    }
+    return $_GET[$k] ?? $def;
 }
 
-$row = fetch_last_snapshot($db, $sym, $tf);
-if (!$row) {
-  echo json_encode(['ok'=>0,'err'=>'no snapshots']); exit;
+function symbol_normalize(string $s): string {
+    $s = trim($s);
+    if ($s === '') return $s;
+    if (strpos($s, ':') !== false) return strtoupper($s);
+    $u = strtoupper($s);
+    $u = preg_replace('/(\.P|_PERP|PERP)$/', '', $u);
+    if ($u === 'BTCUSDT' || $u === 'BTCUSDTP') return 'BINANCE:BTCUSDT';
+    if (preg_match('/^[A-Z0-9]{3,}USDT$/', $u)) return 'BINANCE:' . $u;
+    return $u;
 }
 
-/* 2) Поля из таблицы */
-$ts     = (int)($row['ts'] ?? 0);
-$price  = isset($row['price']) ? (float)$row['price'] : 0.0;
-$symbol = $row['symbol'] ?? 'BTCUSDT';
-$tfRow  = (string)($row['tf'] ?? $tf);
-$verCol = $row['ver'] ?? null;
+$snapshot_id = (int) (arg('snapshot_id') ?? 0);
+$tf = (int) (arg('tf') ?? 5);
+$symIn = arg('sym') ?? arg('symbol') ?? 'BTCUSDT';
+$symbol = symbol_normalize($symIn);
 
-/* 3) Готовим payload: либо payload_json, либо схема features/levels/patterns */
-$payload = null;
-if (!empty($row['payload_json'])) {
-  $payload = json_decode($row['payload_json'], true);
+// 1) Fetch source snapshot
+if ($snapshot_id > 0) {
+    $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE id=? LIMIT 1");
+    $q->bind_param('i', $snapshot_id);
+} else {
+    $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1");
+    $q->bind_param('si', $symbol, $tf);
+}
+$q->execute();
+$src = $q->get_result()->fetch_assoc();
+if (!$src) {
+    http_response_code(404);
+    echo json_encode(['ok'=>false, 'error'=>'snapshot_not_found', 'where'=>['symbol'=>$symbol,'tf'=>$tf,'snapshot_id'=>$snapshot_id]]);
+    exit;
 }
 
-if (!$payload) {
-  $features = [];
-  if (!empty($row['features'])) {
-    $tmp = json_decode($row['features'], true);
-    if (is_array($tmp)) $features = $tmp;
-  }
-  $levels = [];
-  if (!empty($row['levels'])) {
-    $tmp = json_decode($row['levels'], true);
-    if (is_array($tmp)) $levels = $tmp;
-  }
-  $patterns = [];
-  if (!empty($row['patterns'])) {
-    $tmp = json_decode($row['patterns'], true);
-    if (is_array($tmp)) $patterns = $tmp;
-  }
-  $payload = [
-    'ver' => $verCol ?: '10.4',
-    'id'  => $row['id_tag'] ?? 'hud_v10',
-    't'   => 'hud',
-    'sym' => $symbol,
-    'tf'  => $tfRow,
-    'ts'  => $ts,
-    'p'   => $price,
-    'f'   => $features,
-    'lv'  => $levels,
-    'pat' => $patterns,
-  ];
+// 2) Very simple analysis stub (replace with AI later)
+$price = (float)$src['price'];
+$atr = 0.0;
+if (!empty($src['features'])) {
+    $jf = json_decode($src['features'], true);
+    if (is_array($jf) && isset($jf['atr'])) $atr = (float)$jf['atr'];
+}
+$bias = 'neutral';
+$conf = 43;
+if ($atr > 0) {
+    if ($price > (float)$src['price']) {
+        $bias = 'long';
+        $conf = 55;
+    } else {
+        $bias = 'short';
+        $conf = 55;
+    }
 }
 
-// 3) Фичи
-$f       = isset($payload['f']) ? $payload['f'] : [];
-$ver     = isset($payload['ver']) ? (string)$payload['ver'] : '10.4';
-$bbRank  = isset($f['bbr']) ? (float)$f['bbr'] : (isset($f['bb_rank']) ? (float)$f['bb_rank'] : 50.0);
-$trendS  = isset($f['ts'])  ? (int)$f['ts']   : 0;
-$h1      = isset($f['h1'])  ? (int)$f['h1']   : 0;
-$r1      = isset($f['r1'])  ? (float)$f['r1'] : null;
-$r5      = isset($f['r5'])  ? (float)$f['r5'] : (isset($f['rsi']) ? (float)$f['rsi'] : null);
-$r15     = isset($f['r15']) ? (float)$f['r15'] : null;
-$r60     = isset($f['r60']) ? (float)$f['r60'] : null;
-$vwDist  = isset($f['vw'])  ? (float)$f['vw']  : (isset($f['dav']) ? (float)$f['dav'] : null);
-$levels  = $payload['lv'] ?? [];
-$patterns= $payload['pat'] ?? [];
-$note    = isset($f['note']) ? (string)$f['note'] : null;
+$result = [
+    'regime'     => 'trend',
+    'bias'       => $bias,
+    'confidence' => $conf,
+    'price'      => $price,
+    'atr'        => $atr,
+];
 
-// 4) Эвристика (до OpenAI)
-function clamp01($x){ return $x<0?0:($x>1?1:$x); }
-$score = 0.0;
-$score += ($trendS===1) ? 0.15 : (($trendS===-1) ? -0.15 : 0.0);
-$score += ($h1===1) ? 0.10 : (($h1===-1) ? -0.10 : 0.0);
-if ($bbRank>20 && $bbRank<80) $score += 0.05 * (($trendS===1)?1:(($trendS===-1)?-1:0));
-if (!is_null($r5)) { if ($r5>=60) $score += 0.05; elseif ($r5<=40) $score -= 0.05; }
-$probLong  = round(clamp01(0.5 + $score) * 100, 2);
-$probShort = round(100 - $probLong, 2);
-
-// 5) Markdown
-function numfmt($x,$d=2){ return number_format((float)$x,$d,'.',''); }
-function listLevelsMd($levels){
-  if (!$levels) return "- Пока без детальных уровней.";
-  $out=[]; $i=0;
-  foreach($levels as $lv){ if($i>=5)break;
-    $t=$lv['t']??($lv['type']??'lv'); $v=isset($lv['lv'])?$lv['lv']:($lv['level']??null);
-    $da=isset($lv['da'])?$lv['da']:($lv['dist_atr']??null);
-    $out[]="- {$t}: **".($v!==null?numfmt($v,2):'—')."**".($da!==null?" (ΔATR ".numfmt($da,2).")":"");
-    $i++;
-  }
-  return implode("\n",$out);
+// 3) Insert into cbav_hud_analyses (only columns that exist)
+$table = 'cbav_hud_analyses';
+$cols = [];
+$qr = $db->query("SHOW COLUMNS FROM `$table`");
+if ($qr) {
+    while ($r = $qr->fetch_assoc()) $cols[strtolower($r['Field'])] = true;
 }
-$priceStr = numfmt($price,2);
-$bbrStr   = numfmt($bbRank,2);
-$r1s      = is_null($r1)  ? "—" : numfmt($r1,1);
-$r5s      = is_null($r5)  ? "—" : numfmt($r5,1);
-$r15s     = is_null($r15) ? "—" : numfmt($r15,1);
-$r60s     = is_null($r60) ? "—" : numfmt($r60,1);
-$vws      = is_null($vwDist) ? "—" : numfmt($vwDist,2);
-$trendTxt = $trendS===1 ? "восходящий (HTF EMA 50>200)" : ($trendS===-1 ? "нисходящий (HTF EMA 50<200)" : "нейтральный");
-$h1Txt    = $h1===1 ? "H1 EMA вверх" : ($h1===-1 ? "H1 EMA вниз" : "H1 EMA нейтрально");
+$insertCols = [];
+$params = [];
+$types = '';
+function addField(&$insertCols, &$params, &$types, $name, $value, $typeChar, $cols) {
+    if (isset($cols[strtolower($name)]) && $value !== null) {
+        $insertCols[] = "`$name`";
+        $params[] = $value;
+        $types .= $typeChar;
+    }
+}
 
-$summary =
-"# Общая картина\n".
-"Цена BTC сейчас около **{$priceStr} USDT**. BB‑rank: **{$bbrStr}**; тренд HTF: **{$trendTxt}**; {$h1Txt}.\n\n".
-"## Индикаторы\n".
-"- RSI (1/5/15/60m): **{$r1s} / {$r5s} / {$r15s} / {$r60s}**\n".
-"- Дистанция до дневного VWAP (ATR): **{$vws}**\n".
-($note ? "- Заметки: {$note}\n" : "") . "\n".
-"## Ключевые уровни\n".listLevelsMd($levels)."\n\n".
-"## Сценарий для лонга / шорта\n".
-"- Вероятность лонга: **{$probLong}%**, шорта: **{$probShort}%**.\n\n".
-"## Что бы сделал я (итог)\n".
-"- Ждём вход в коридор сделки и подтверждения на 5m.\n";
+addField($insertCols, $params, $types, 'snapshot_id', (int)$src['id'], 'i', $cols);
+addField($insertCols, $params, $types, 'analyzed_at', date('Y-m-d H:i:s'), 's', $cols);
+addField($insertCols, $params, $types, 'symbol', $symbol, 's', $cols);
+addField($insertCols, $params, $types, 'sym', $symbol, 's', $cols); // keep both the same everywhere
+addField($insertCols, $params, $types, 'tf', (int)$src['tf'], 'i', $cols);
+addField($insertCols, $params, $types, 'ver', (string)($src['ver'] ?? '10.4'), 's', $cols);
+addField($insertCols, $params, $types, 'ts', (int)$src['ts'], 'i', $cols);
+addField($insertCols, $params, $types, 'result_json', json_encode($result, JSON_UNESCAPED_UNICODE), 's', $cols);
+addField($insertCols, $params, $types, 'notes', 'auto', 's', $cols);
 
-// 6) Запись в cbav_hud_analyses
-$stmt = $db->prepare(
- "INSERT INTO cbav_hud_analyses (ts,sym,tf,ver,prob_long,prob_short,summary_md,raw_json)
-  VALUES (?,?,?,?,?,?,?,?)
-  ON DUPLICATE KEY UPDATE ver=VALUES(ver),prob_long=VALUES(prob_long),
-  prob_short=VALUES(prob_short),summary_md=VALUES(summary_md),raw_json=VALUES(raw_json)"
-);
-$raw_json = json_encode(['payload'=>$payload], JSON_UNESCAPED_UNICODE);
-$stmt->bind_param('isssddss', $ts, $symbol, $tfRow, $ver, $probLong, $probShort, $summary, $raw_json);
-$ok = $stmt->execute();
+$sql = "INSERT INTO `$table` (" . implode(',', $insertCols) . ") VALUES (" .
+       implode(',', array_fill(0, count($insertCols), '?')) . ")";
+$stmt = $db->prepare($sql);
+if (!$stmt) {
+    http_response_code(500);
+    echo json_encode(['ok'=>false,'error'=>'prepare_failed','sql'=>$sql,'mysqli'=>$db->error]);
+    exit;
+}
+$stmt->bind_param($types, ...$params);
+if (!$stmt->execute()) {
+    http_response_code(500);
+    echo json_encode(['ok'=>false,'error'=>'execute_failed','mysqli'=>$stmt->error]);
+    exit;
+}
+$analysisId = $stmt->insert_id;
 
-echo json_encode(['ok'=>$ok?1:0,'sym'=>$symbol,'tf'=>$tfRow,'ver'=>$ver,'prob_long'=>$probLong,'prob_short'=>$probShort]);
+echo json_encode([
+    'ok' => true,
+    'analysis_id' => $analysisId,
+    'snapshot_id' => (int)$src['id'],
+    'symbol' => $symbol,
+    'tf' => (int)$src['tf'],
+    'result' => $result,
+]);
