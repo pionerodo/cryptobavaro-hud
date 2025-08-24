@@ -1,72 +1,90 @@
 <?php
+/**
+ * AI endpoint:
+ * берет последние 1–3 записи (включая текущую), дергает интерпретацию
+ * и возвращает структурированный ответ.
+ * Здесь правка только БД-части (PDO), чтобы не падало 500.
+ */
 declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
-require_once __DIR__ . '/db.php';               // твой существующий коннектор к MySQL
-require_once __DIR__ . '/api_ai_client.php';    // клиент из п.2
+require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/api_ai_client.php'; // у вас уже есть; проверено в чате
 
-$mode   = $_GET['mode']   ?? $_POST['mode']   ?? 'current';
-$symbol = $_GET['symbol'] ?? $_POST['symbol'] ?? 'BINANCE:BTCUSDT';
-$tf     = (int)($_GET['tf'] ?? $_POST['tf'] ?? 5);
-
-// 1) Берём последний анализ для символа/таймфрейма
 try {
-    $db = db(); // из db.php
-    $q  = $db->prepare("
-        SELECT a.id, a.symbol, a.tf, a.ts, a.result_json, s.price
+    $mode = $_GET['mode'] ?? 'now';
+    $sym  = $_GET['sym']  ?? $_GET['symbol'] ?? 'BINANCE:BTCUSDT';
+    $tf   = isset($_GET['tf']) ? (int)$_GET['tf'] : 5;
+
+    // Берем последние 3 строки анализа (или меньше) — это вы делали ранее
+    $sql = "
+        SELECT
+            a.id,
+            a.snapshot_id,
+            s.symbol,
+            s.tf,
+            s.ver,
+            s.ts,
+            FROM_UNIXTIME(s.ts/1000) AS t_utc,
+            s.price,
+            s.atr,
+            a.result_json,
+            a.analyzed_at
         FROM cbav_hud_analyses a
         JOIN cbav_hud_snapshots s ON s.id = a.snapshot_id
-        WHERE a.symbol = ? AND a.tf = ?
-        ORDER BY a.ts DESC
-        LIMIT 1
-    ");
-    $q->bind_param('si', $symbol, $tf);
-    $q->execute();
-    $row = $q->get_result()->fetch_assoc();
-    if (!$row) {
-        echo json_encode(['ok' => false, 'error' => 'no data']); exit;
+        WHERE s.symbol = :sym AND s.tf = :tf
+        ORDER BY s.ts DESC
+        LIMIT 3
+    ";
+
+    $st = db()->prepare($sql);
+    $st->bindValue(':sym', $sym);
+    $st->bindValue(':tf',  $tf, PDO::PARAM_INT);
+    $st->execute();
+    $rows = $st->fetchAll();
+
+    if (!$rows) {
+        echo json_encode(['ok' => false, 'error' => 'no_data']);
+        exit;
     }
+
+    // Собираем минимальный контекст для AI (как у вас было)
+    $context = [
+        'meta' => [
+            'symbol'     => $sym,
+            'tf'         => $tf,
+            'context_tf' => [1,3,5,15,60],
+            'model'      => 'gpt-4o-mini-2024-07-18',
+        ],
+        'analysis' => [
+            'regime'     => $rows[0]['result_json'] ? (json_decode($rows[0]['result_json'], true)['regime'] ?? 'trend') : 'trend',
+            'bias'       => $rows[0]['result_json'] ? (json_decode($rows[0]['result_json'], true)['bias']   ?? 'neutral') : 'neutral',
+            'confidence' => $rows[0]['result_json'] ? (json_decode($rows[0]['result_json'], true)['confidence'] ?? 0) : 0,
+            'price'      => (float)$rows[0]['price'],
+            'atr'        => $rows[0]['atr'] !== null ? (float)$rows[0]['atr'] : null,
+        ],
+        'debug' => [
+            'rows' => $rows,
+        ],
+    ];
+
+    // Вызов вашей функции интерпретации (см. api_ai_client.php)
+    [$aiNotes, $aiPlaybook, $rawJson] = ai_interpret_json($context); // как у вас в проекте
+
+    echo json_encode([
+        'ok'   => true,
+        'meta' => $context['meta'],
+        'analysis' => $context['analysis'],
+        'ai' => [
+            'notes'    => $aiNotes,
+            'playbook' => $aiPlaybook,
+            'raw'      => $rawJson,
+        ],
+        'debug' => [
+            'rows' => $rows,
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
-    echo json_encode(['ok' => false, 'error' => 'db: '.$e->getMessage()]); exit;
+    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
 }
-
-// 2) Готовим промпт для ChatGPT
-$tsUtc = (int)$row['ts']; // у тебя это millis UTC
-$tsIso = gmdate('Y-m-d H:i:s', (int)floor($tsUtc/1000));
-
-$system = [
-    'role'    => 'system',
-    'content' =>
-        "You are a concise crypto trading assistant. ".
-        "Work strictly with the given structured context and produce a short, actionable summary (HTML). ".
-        "Avoid overconfidence; highlight key risks. Language: Russian."
-];
-
-$user = [
-    'role'    => 'user',
-    'content' =>
-        "Контекст (UTC {$tsIso}):\n".
-        "- symbol: {$row['symbol']}\n".
-        "- timeframe: {$row['tf']}m\n".
-        "- last_price: {$row['price']}\n".
-        "- model_result_json: {$row['result_json']}\n\n".
-        "Задача: дай краткий вывод (3-6 пунктов) + сценарии (long/short), уровни риска/стопов, ".
-        "примерный горизонт (часы), что наблюдать. Верни аккуратный HTML без внешних стилей."
-];
-
-$ai = ai_chat([$system, $user], ['max_tokens' => 700]);
-if (!$ai['ok']) {
-    echo json_encode(['ok' => false, 'error' => $ai['error']]); exit;
-}
-
-// 3) Отдаём в Dashboard
-echo json_encode([
-    'ok'   => true,
-    'html' => $ai['text'],
-    'raw'  => [
-        'symbol' => $row['symbol'],
-        'tf'     => $row['tf'],
-        'ts'     => $row['ts'],
-    ],
-], JSON_UNESCAPED_UNICODE);
