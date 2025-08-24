@@ -1,70 +1,73 @@
 <?php
-require_once __DIR__.'/db.php';
+declare(strict_types=1);
 
-/**
- * Берёт последний снапшот по ?sym=&tf= и пишет «анализ» в cbav_hud_analyses.
- * Логику анализа можно углублять — здесь минимально достаточный пайплайн.
- *
- * GET:
- *   sym=BINANCE:BTCUSDT
- *   tf=5
- */
+header('Content-Type: application/json; charset=utf-8');
+
+require_once __DIR__ . '/db.php';
 
 try {
-    $sym = $_GET['sym'] ?? '';
-    $tf  = (int)($_GET['tf'] ?? 5);
+    $pdo = db(); // PDO
 
-    if (!$sym || !$tf) json_out(['ok'=>false,'error'=>'bad_input'], 400);
+    // Параметры
+    $symbol = isset($_GET['sym']) ? trim((string)$_GET['sym']) : 'BINANCE:BTCUSDT';
+    $tf     = isset($_GET['tf'])  ? (int)$_GET['tf'] : 5;
 
-    $row = db_row(
-        "SELECT id, symbol, tf, ts, price
-           FROM cbav_hud_snapshots
-          WHERE symbol=:s AND tf=:tf
-          ORDER BY ts DESC
-          LIMIT 1",
-        [':s'=>$sym, ':tf'=>$tf]
-    );
-    if (!$row) json_out(['ok'=>false,'error'=>'no_snapshot'], 404);
+    // Берём свежий снимок цены из cbav_hud_snapshots
+    $sqlSnap = "
+        SELECT id AS snapshot_id, symbol, tf, ver, ts, price
+        FROM cbav_hud_snapshots
+        WHERE symbol = :sym AND tf = :tf
+        ORDER BY ts DESC
+        LIMIT 1
+    ";
+    $st = $pdo->prepare($sqlSnap);
+    $st->bindValue(':sym', $symbol);
+    $st->bindValue(':tf', $tf, PDO::PARAM_INT);
+    $st->execute();
+    $snap = $st->fetch(PDO::FETCH_ASSOC);
 
-    // Примитивная «оценка» (пока просто заглушка — можно расширить)
-    $regime     = 'trend';
-    $bias       = 'neutral';
-    $confidence = 50;
-    $atr        = null;
+    if (!$snap) {
+        echo json_encode(['ok'=>false,'error'=>'no_snapshot','detail'=>'Нет свежих снимков для указанного symbol/tf']);
+        exit;
+    }
 
-    $resultJson = json_encode([
-        'regime'=>$regime,
-        'bias'=>$bias,
-        'confidence'=>$confidence,
-        'price'=>(float)$row['price'],
-        'atr'=>$atr
-    ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+    // Здесь у вас может быть любая логика аналитики.
+    // Для совместимости кладём результат в result_json,
+    // а плоские поля (regime/bias/confidence/atr) не требуем в таблице.
+    $ai = [
+        'regime'     => 'trend',
+        'bias'       => 'neutral',
+        'confidence' => 50,
+        'price'      => (float)$snap['price'],
+        'atr'        => null,
+    ];
+    $resultJson = json_encode($ai, JSON_UNESCAPED_UNICODE);
 
-    db_exec(
-        "INSERT INTO cbav_hud_analyses
-            (snapshot_id, symbol, tf, ts, regime, bias, confidence, atr, result_json, analyzed_at)
-         VALUES
-            (:sid, :sym, :tf, :ts, :regime, :bias, :conf, :atr, :rj, NOW())",
-        [
-            ':sid'=>$row['id'],
-            ':sym'=>$row['symbol'],
-            ':tf' =>$row['tf'],
-            ':ts' =>$row['ts'],
-            ':regime'=>$regime,
-            ':bias'=>$bias,
-            ':conf'=>$confidence,
-            ':atr'=>$atr,
-            ':rj'=>$resultJson,
-        ]
-    );
+    // INSERT только в поля, которые точно есть у нас по схеме:
+    // id/snapshot_id/symbol/tf/ver/ts/price/result_json/analyzed_at
+    // Если вы добавляли колонки regime/bias/confidence/atr — триггер COALESCE
+    // в SELECT позволит использовать их, но здесь они не обязательны.
+    $sqlIns = "
+        INSERT INTO cbav_hud_analyses
+            (snapshot_id, symbol, tf, ver, ts, price, result_json, analyzed_at)
+        VALUES
+            (:snapshot_id, :symbol, :tf, :ver, :ts, :price, :result_json, NOW())
+    ";
+    $ins = $pdo->prepare($sqlIns);
+    $ins->bindValue(':snapshot_id', (int)$snap['snapshot_id'], PDO::PARAM_INT);
+    $ins->bindValue(':symbol',      $snap['symbol']);
+    $ins->bindValue(':tf',          (int)$snap['tf'],        PDO::PARAM_INT);
+    $ins->bindValue(':ver',         $snap['ver']);
+    $ins->bindValue(':ts',          (int)$snap['ts'],        PDO::PARAM_INT);
+    $ins->bindValue(':price',       (float)$snap['price']);
+    $ins->bindValue(':result_json', $resultJson);
+    $ins->execute();
 
-    json_out(['ok'=>true, 'analyzed'=>[
-        'snapshot_id'=>$row['id'],
-        'symbol'=>$row['symbol'],
-        'tf'=>$row['tf'],
-        'ts'=>$row['ts'],
-    ]]);
+    echo json_encode(['ok'=>true,'saved'=>$ai], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
-    log_line('analyze.log', 'ERR '.$e->getMessage());
-    json_out(['ok'=>false,'error'=>'exception','detail'=>$e->getMessage()], 500);
+    echo json_encode([
+        'ok'     => false,
+        'error'  => 'exception',
+        'detail' => $e->getMessage()
+    ], JSON_UNESCAPED_UNICODE);
 }

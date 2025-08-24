@@ -1,42 +1,51 @@
 <?php
-require_once __DIR__.'/db.php';
+declare(strict_types=1);
 
-/**
- * Отдаёт последние записи из cbav_hud_analyses для заданных sym/tf.
- * GET: sym=BINANCE:BTCUSDT&tf=5&limit=3
- */
+header('Content-Type: application/json; charset=utf-8');
+
+require_once __DIR__ . '/db.php';
 
 try {
-    $sym   = $_GET['sym']   ?? '';
-    $tf    = (int)($_GET['tf']    ?? 5);
-    $limit = (int)($_GET['limit'] ?? 3);
-    if ($limit <= 0 || $limit > 50) $limit = 3;
+    $pdo = db();
 
-    if (!$sym || !$tf) json_out(['ok'=>false,'error'=>'bad_input'], 400);
+    $symbol = isset($_GET['sym']) ? trim((string)$_GET['sym']) : 'BINANCE:BTCUSDT';
+    $tf     = isset($_GET['tf'])  ? (int)$_GET['tf'] : 5;
+    $limit  = isset($_GET['limit']) ? max(1, (int)$_GET['limit']) : 3;
 
-    $sql =
-      "SELECT id, snapshot_id, symbol, tf, ver, ts, 
-              FROM_UNIXTIME(ts/1000) t_utc, price, regime, bias, confidence, atr, result_json, analyzed_at
-         FROM (
-                SELECT a.id, a.snapshot_id, a.symbol, a.tf, s.ver, a.ts, s.price,
-                       a.regime, a.bias, a.confidence, a.atr, a.result_json, a.analyzed_at
-                  FROM cbav_hud_analyses a
-                  JOIN cbav_hud_snapshots s ON s.id=a.snapshot_id
-                 WHERE a.symbol=:sym AND a.tf=:tf
-                 ORDER BY a.ts DESC
-                 LIMIT :lim
-              ) t
-        ORDER BY ts DESC";
+    // Берём последние записи из cbav_hud_analyses.
+    // Поля regime/bias/confidence/atr читаем из колонки, если она есть,
+    // иначе — из JSON result_json.
+    $sql = "
+        SELECT
+            a.id,
+            a.snapshot_id,
+            a.symbol,
+            a.tf,
+            a.ver,
+            a.ts,
+            FROM_UNIXTIME(a.ts/1000) AS t_utc,
+            a.price,
+            COALESCE(a.regime,      JSON_UNQUOTE(JSON_EXTRACT(a.result_json,  '$.regime')))      AS regime,
+            COALESCE(a.bias,        JSON_UNQUOTE(JSON_EXTRACT(a.result_json,  '$.bias')))        AS bias,
+            COALESCE(a.confidence,  JSON_EXTRACT(a.result_json,             '$.confidence'))     AS confidence,
+            COALESCE(a.atr,         JSON_EXTRACT(a.result_json,             '$.atr'))            AS atr,
+            a.result_json,
+            a.analyzed_at
+        FROM cbav_hud_analyses a
+        WHERE a.symbol = :sym AND a.tf = :tf
+        ORDER BY a.ts DESC
+        LIMIT :lim
+    ";
 
-    $st = db()->prepare($sql);
-    $st->bindValue(':sym', $sym, PDO::PARAM_STR);
-    $st->bindValue(':tf',  $tf,  PDO::PARAM_INT);
+    $st = $pdo->prepare($sql);
+    $st->bindValue(':sym', $symbol);
+    $st->bindValue(':tf',  $tf, PDO::PARAM_INT);
     $st->bindValue(':lim', $limit, PDO::PARAM_INT);
     $st->execute();
-    $rows = $st->fetchAll();
 
-    json_out(['ok'=>true,'count'=>count($rows),'data'=>$rows]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode(['ok'=>true,'count'=>count($rows),'data'=>$rows], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
-    log_line('strict_api.log', 'ERR '.$e->getMessage());
-    json_out(['ok'=>false,'error'=>'exception','detail'=>$e->getMessage()], 500);
+    echo json_encode(['ok'=>false,'error'=>'exception','detail'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
 }
