@@ -1,143 +1,70 @@
 <?php
+require_once __DIR__.'/db.php';
+
 /**
- * /api/hud_analyze.php
- * Picks the latest snapshot (or a specific snapshot_id), runs a lightweight rules-based
- * analysis (placeholder for AI), and stores the result to cbav_hud_analyses.
+ * Берёт последний снапшот по ?sym=&tf= и пишет «анализ» в cbav_hud_analyses.
+ * Логику анализа можно углублять — здесь минимально достаточный пайплайн.
  *
- * Robust to schema differences: detects available columns and inserts only those.
- *
- * Usage examples:
- *   php hud_analyze.php
- *   php hud_analyze.php sym=BTCUSDT tf=5
- *   php hud_analyze.php snapshot_id=141
- *   https://.../api/hud_analyze.php?sym=BTCUSDT.P&tf=5
+ * GET:
+ *   sym=BINANCE:BTCUSDT
+ *   tf=5
  */
 
-header('Content-Type: application/json; charset=utf-8');
+try {
+    $sym = $_GET['sym'] ?? '';
+    $tf  = (int)($_GET['tf'] ?? 5);
 
-require __DIR__ . '/db.php'; // expects $db (mysqli)
+    if (!$sym || !$tf) json_out(['ok'=>false,'error'=>'bad_input'], 400);
 
-function arg($k, $def=null) {
-    if (php_sapi_name() === 'cli') {
-        global $argv;
-        foreach ($argv as $a) {
-            if (strpos($a, '=') !== false) {
-                [$kk, $vv] = explode('=', $a, 2);
-                if ($kk === $k) return $vv;
-            }
-        }
-    }
-    return $_GET[$k] ?? $def;
+    $row = db_row(
+        "SELECT id, symbol, tf, ts, price
+           FROM cbav_hud_snapshots
+          WHERE symbol=:s AND tf=:tf
+          ORDER BY ts DESC
+          LIMIT 1",
+        [':s'=>$sym, ':tf'=>$tf]
+    );
+    if (!$row) json_out(['ok'=>false,'error'=>'no_snapshot'], 404);
+
+    // Примитивная «оценка» (пока просто заглушка — можно расширить)
+    $regime     = 'trend';
+    $bias       = 'neutral';
+    $confidence = 50;
+    $atr        = null;
+
+    $resultJson = json_encode([
+        'regime'=>$regime,
+        'bias'=>$bias,
+        'confidence'=>$confidence,
+        'price'=>(float)$row['price'],
+        'atr'=>$atr
+    ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+
+    db_exec(
+        "INSERT INTO cbav_hud_analyses
+            (snapshot_id, symbol, tf, ts, regime, bias, confidence, atr, result_json, analyzed_at)
+         VALUES
+            (:sid, :sym, :tf, :ts, :regime, :bias, :conf, :atr, :rj, NOW())",
+        [
+            ':sid'=>$row['id'],
+            ':sym'=>$row['symbol'],
+            ':tf' =>$row['tf'],
+            ':ts' =>$row['ts'],
+            ':regime'=>$regime,
+            ':bias'=>$bias,
+            ':conf'=>$confidence,
+            ':atr'=>$atr,
+            ':rj'=>$resultJson,
+        ]
+    );
+
+    json_out(['ok'=>true, 'analyzed'=>[
+        'snapshot_id'=>$row['id'],
+        'symbol'=>$row['symbol'],
+        'tf'=>$row['tf'],
+        'ts'=>$row['ts'],
+    ]]);
+} catch (Throwable $e) {
+    log_line('analyze.log', 'ERR '.$e->getMessage());
+    json_out(['ok'=>false,'error'=>'exception','detail'=>$e->getMessage()], 500);
 }
-
-function symbol_normalize(string $s): string {
-    $s = trim($s);
-    if ($s === '') return $s;
-    if (strpos($s, ':') !== false) return strtoupper($s);
-    $u = strtoupper($s);
-    $u = preg_replace('/(\.P|_PERP|PERP)$/', '', $u);
-    if ($u === 'BTCUSDT' || $u === 'BTCUSDTP') return 'BINANCE:BTCUSDT';
-    if (preg_match('/^[A-Z0-9]{3,}USDT$/', $u)) return 'BINANCE:' . $u;
-    return $u;
-}
-
-$snapshot_id = (int) (arg('snapshot_id') ?? 0);
-$tf = (int) (arg('tf') ?? 5);
-$symIn = arg('sym') ?? arg('symbol') ?? 'BTCUSDT';
-$symbol = symbol_normalize($symIn);
-
-// 1) Fetch source snapshot
-if ($snapshot_id > 0) {
-    $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE id=? LIMIT 1");
-    $q->bind_param('i', $snapshot_id);
-} else {
-    $q = $db->prepare("SELECT * FROM cbav_hud_snapshots WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1");
-    $q->bind_param('si', $symbol, $tf);
-}
-$q->execute();
-$src = $q->get_result()->fetch_assoc();
-if (!$src) {
-    http_response_code(404);
-    echo json_encode(['ok'=>false, 'error'=>'snapshot_not_found', 'where'=>['symbol'=>$symbol,'tf'=>$tf,'snapshot_id'=>$snapshot_id]]);
-    exit;
-}
-
-// 2) Very simple analysis stub (replace with AI later)
-$price = (float)$src['price'];
-$atr = 0.0;
-if (!empty($src['features'])) {
-    $jf = json_decode($src['features'], true);
-    if (is_array($jf) && isset($jf['atr'])) $atr = (float)$jf['atr'];
-}
-$bias = 'neutral';
-$conf = 43;
-if ($atr > 0) {
-    if ($price > (float)$src['price']) {
-        $bias = 'long';
-        $conf = 55;
-    } else {
-        $bias = 'short';
-        $conf = 55;
-    }
-}
-
-$result = [
-    'regime'     => 'trend',
-    'bias'       => $bias,
-    'confidence' => $conf,
-    'price'      => $price,
-    'atr'        => $atr,
-];
-
-// 3) Insert into cbav_hud_analyses (only columns that exist)
-$table = 'cbav_hud_analyses';
-$cols = [];
-$qr = $db->query("SHOW COLUMNS FROM `$table`");
-if ($qr) {
-    while ($r = $qr->fetch_assoc()) $cols[strtolower($r['Field'])] = true;
-}
-$insertCols = [];
-$params = [];
-$types = '';
-function addField(&$insertCols, &$params, &$types, $name, $value, $typeChar, $cols) {
-    if (isset($cols[strtolower($name)]) && $value !== null) {
-        $insertCols[] = "`$name`";
-        $params[] = $value;
-        $types .= $typeChar;
-    }
-}
-
-addField($insertCols, $params, $types, 'snapshot_id', (int)$src['id'], 'i', $cols);
-addField($insertCols, $params, $types, 'analyzed_at', date('Y-m-d H:i:s'), 's', $cols);
-addField($insertCols, $params, $types, 'symbol', $symbol, 's', $cols);
-addField($insertCols, $params, $types, 'sym', $symbol, 's', $cols); // keep both the same everywhere
-addField($insertCols, $params, $types, 'tf', (int)$src['tf'], 'i', $cols);
-addField($insertCols, $params, $types, 'ver', (string)($src['ver'] ?? '10.4'), 's', $cols);
-addField($insertCols, $params, $types, 'ts', (int)$src['ts'], 'i', $cols);
-addField($insertCols, $params, $types, 'result_json', json_encode($result, JSON_UNESCAPED_UNICODE), 's', $cols);
-addField($insertCols, $params, $types, 'notes', 'auto', 's', $cols);
-
-$sql = "INSERT INTO `$table` (" . implode(',', $insertCols) . ") VALUES (" .
-       implode(',', array_fill(0, count($insertCols), '?')) . ")";
-$stmt = $db->prepare($sql);
-if (!$stmt) {
-    http_response_code(500);
-    echo json_encode(['ok'=>false,'error'=>'prepare_failed','sql'=>$sql,'mysqli'=>$db->error]);
-    exit;
-}
-$stmt->bind_param($types, ...$params);
-if (!$stmt->execute()) {
-    http_response_code(500);
-    echo json_encode(['ok'=>false,'error'=>'execute_failed','mysqli'=>$stmt->error]);
-    exit;
-}
-$analysisId = $stmt->insert_id;
-
-echo json_encode([
-    'ok' => true,
-    'analysis_id' => $analysisId,
-    'snapshot_id' => (int)$src['id'],
-    'symbol' => $symbol,
-    'tf' => (int)$src['tf'],
-    'result' => $result,
-]);
