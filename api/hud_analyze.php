@@ -15,6 +15,7 @@
 
 header('Content-Type: application/json; charset=utf-8');
 
+require_once __DIR__ . '/db.php';               // твой существующий коннектор к MySQL
 require __DIR__ . '/db.php'; // expects $db (mysqli)
 
 function arg($k, $def=null) {
