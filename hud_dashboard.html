@@ -2,187 +2,215 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <title>HUD Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HUD Dashboard</title>
   <style>
-    :root { --bg:#0e0f12; --panel:#191b22; --text:#d7e0ea; --muted:#9aa7b2; --ok:#47d16a; --err:#ff6666; --accent:#4ea3ff; }
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;}
-    .wrap{max-width:1320px;margin:20px auto;padding:0 16px;}
-    h1{margin:0 0 16px 0;font-weight:700}
-    .top{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
-    .pill{padding:6px 10px;border-radius:999px;background:#222632;color:var(--muted);font-weight:600}
-    .pill.ok{background:#15301f;color:var(--ok)}
-    .pill.err{background:#301b1b;color:var(--err)}
-    select,button{background:#12151d;color:var(--text);border:1px solid #303744;border-radius:8px;padding:8px 10px}
-    button{cursor:pointer}
-    button.primary{background:#0e3a6d;border-color:#134a8a;color:#d9ecff}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .panel{background:var(--panel);border:1px solid #2a2f39;border-radius:14px;padding:12px;min-height:120px}
-    .panel h3{margin:0 0 10px;font-size:16px}
-    pre{margin:0;background:#0a0c10;border:1px solid #2a2f39;border-radius:10px;padding:10px;overflow:auto;max-height:60vh;color:#93ff93}
-    .row{display:flex;gap:10px;align-items:center}
-    .hint{color:var(--muted);font-size:12px}
-    .log{color:#9eff9e;white-space:pre-wrap}
-    a{color:var(--accent);text-decoration:none}
+    :root{
+      --bg:#0e1013; --card:#161a1f; --muted:#a9b0bb; --text:#e7ecf3; --ok:#36d399; --warn:#ffd166; --err:#ff6b6b;
+      --accent:#3b82f6; --accent-2:#2563eb; --mono:#9fe870;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #1f242c}
+    h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.2px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
+    .card{background:var(--card);border:1px solid #212733;border-radius:12px;overflow:hidden}
+    .card h3{margin:0;padding:10px 12px;border-bottom:1px solid #212733;font-size:13px;color:var(--muted);letter-spacing:.3px}
+    .card .body{padding:12px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    label{color:var(--muted);font-size:12px}
+    input[type=text], select{
+      background:#0f1318;color:var(--text);border:1px solid #2a3240;border-radius:8px;padding:8px 10px;outline:none;
+    }
+    button{
+      background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 12px;font-weight:600;cursor:pointer
+    }
+    button:hover{background:var(--accent-2)}
+    .btn-ghost{background:#0f1318;border:1px solid #2a3240;color:var(--muted)}
+    .status{font-size:12px;color:var(--ok);margin-left:auto}
+    pre{
+      margin:0;background:#0b0e12;border:1px solid #202632;border-radius:10px;padding:10px;overflow:auto;
+      color:var(--mono);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+    }
+    .stack{display:grid;gap:16px}
+    .diag-line{color:#9be5a7;font:12px/1.4 ui-monospace,monospace;white-space:pre}
+    .footer{padding:10px 16px;color:var(--muted);font-size:12px}
+    .right{display:grid;gap:16px}
+    @media (max-width:1100px){ .row{grid-template-columns:1fr} }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
-      <h1 style="margin-right:auto">HUD Dashboard</h1>
-      <span class="hint">Пара:</span>
-      <select id="sym">
-        <option>BINANCE:BTCUSDT</option>
-        <option>BINANCE:ETHUSDT</option>
-      </select>
-      <span class="hint">TF:</span>
+  <header>
+    <h1>HUD Dashboard</h1>
+    <div class="controls">
+      <label>Пара:</label>
+      <input id="sym" type="text" value="BINANCE:BTCUSDT" spellcheck="false" />
+      <label>TF:</label>
       <select id="tf">
-        <option value="1">1m</option>
-        <option value="5" selected>5m</option>
-        <option value="15">15m</option>
-        <option value="60">60m</option>
+        <option>1m</option><option selected>5m</option><option>15m</option><option>60m</option>
       </select>
-      <button id="btnNow" class="primary">Получить анализ</button>
-      <button id="btnEntry">Проверить «коридор сделки»</button>
-      <span id="health" class="pill">…</span>
+      <button id="btnNow">Получить анализ</button>
+      <button id="btnEntry" class="btn-ghost">Проверить «коридор сделки»</button>
+      <span id="ping" class="status">OK</span>
+    </div>
+  </header>
+
+  <div class="row">
+    <div class="stack">
+      <div class="card">
+        <h3>Текущий анализ</h3>
+        <div class="body"><pre id="nowBox">—</pre></div>
+      </div>
+
+      <div class="card">
+        <h3>Последние записи (строго UTC)</h3>
+        <div class="body"><pre id="strictBox">—</pre></div>
+      </div>
     </div>
 
-    <div class="grid">
-      <div class="panel">
-        <div class="row" style="justify-content:space-between">
-          <h3>Текущий анализ</h3>
-          <span class="hint">Источник: <code>/api/hud_analyze.php</code></span>
-        </div>
-        <pre id="outNow">—</pre>
+    <div class="right">
+      <div class="card">
+        <h3>Сигнал входа (коридор)</h3>
+        <div class="body"><pre id="entryBox">—</pre></div>
       </div>
 
-      <div class="panel">
-        <div class="row" style="justify-content:space-between">
-          <h3>Сигнал входа (коридор)</h3>
-          <span class="hint">Источник: <code>/api/hud_ai.php?mode=entry</code></span>
-        </div>
-        <pre id="outEntry">—</pre>
-      </div>
-
-      <div class="panel" style="grid-column:1 / span 2">
-        <div class="row" style="justify-content:space-between">
-          <h3>Последние записи (строго UTC)</h3>
-          <div class="row">
-            <button id="btnStrict">Показать 3</button>
-            <span class="hint">Источник: <code>/api/hud_api_strict.php</code></span>
-          </div>
-        </div>
-        <pre id="outStrict">—</pre>
-      </div>
-
-      <div class="panel" style="grid-column:1 / span 2">
+      <div class="card">
         <h3>Диагностика запросов</h3>
-        <pre id="diag" class="log"></pre>
+        <div class="body">
+          <div id="diag"></div>
+        </div>
       </div>
     </div>
-
-    <p class="hint" style="margin-top:14px">Источник данных: API HUD (<code>/api/*</code>)</p>
   </div>
 
+  <div class="footer">Источник данных: API HUD (<code>cryptobavaro.online/api/*</code>)</div>
+
   <script>
-    // ===== helpers =====
     const $ = s => document.querySelector(s);
-    const diag = msg => {
-      const t = new Date().toISOString().replace('T',' ').replace('Z','Z');
-      $('#diag').textContent = `[${t}] ${msg}\n` + $('#diag').textContent;
+    const diag = (txt, ok=true) => {
+      const ts = new Date().toISOString().replace('T',' ').replace('Z','Z');
+      const el = document.createElement('div');
+      el.className = 'diag-line';
+      el.style.color = ok ? '#9be5a7' : 'var(--err)';
+      el.textContent = `[${ts}] ${txt}`;
+      $('#diag').prepend(el);
     };
-    const show = (el, data) => {
-      if (typeof data === 'string') { el.textContent = data; return; }
-      el.textContent = JSON.stringify(data, null, 2);
-    };
-    const health = (ok, tip='') => {
-      const h = $('#health');
-      h.classList.remove('ok','err');
-      if (ok) { h.classList.add('ok'); h.textContent = 'OK'; h.title=''; }
-      else { h.classList.add('err'); h.textContent='ERR'; h.title = tip || 'Ошибка запроса'; }
-    };
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const tfNum = (tfStr) => parseInt(tfStr.replace(/\D/g,''),10) || 5;
 
     async function fetchJSON(url) {
-      diag(`GET ${url}`);
-      try {
-        const res = await fetch(url, {
-          headers: { 'Accept': 'application/json' },
-          cache: 'no-store',
-          credentials: 'same-origin',
-        });
-        const text = await res.text();
-        // пробуем распарсить
-        try {
-          const json = JSON.parse(text);
-          return { ok: true, status: res.status, json, text };
-        } catch (e) {
-          // вернулся не‑JSON → покажем ответ как есть
-          return { ok: false, status: res.status, error: 'Not JSON', text };
+      const t0 = performance.now();
+      try{
+        const res = await fetch(url, {cache:'no-store'});
+        const text = await res.text(); // читаем как текст для диагностики
+        let json;
+        try { json = JSON.parse(text); }
+        catch(e){
+          diag(`ERR ${res.status} ${url}\n↳ BODY: ${text.slice(0,200)}…`, false);
+          throw new Error('bad_json');
         }
-      } catch (e) {
-        return { ok: false, error: e.message };
+        const ms = Math.round(performance.now() - t0);
+        diag(`GET ${url}  • ${ms} ms`);
+        return json;
+      }catch(e){
+        diag(`EXC ${url}  • ${e}`, false);
+        throw e;
       }
     }
 
-    function params() {
-      return {
-        sym: encodeURIComponent($('#sym').value.trim()),
-        t: $('#tf').value.trim() // только число минут
-      };
+    function pretty(target, data){
+      $(target).textContent = JSON.stringify(data, null, 2);
     }
 
-    // ===== actions =====
-    async function doNow() {
-      const { sym, t } = params();
-      const url = `/api/hud_analyze.php?sym=${sym}&t=${t}`;
-      const r = await fetchJSON(url);
-      if (r.ok && r.json && r.json.ok !== false) {
-        show($('#outNow'), r.json);
-        health(true);
-      } else {
-        const detail = r.json?.detail || r.error || '';
-        show($('#outNow'), r.text || JSON.stringify(r.json || { error: detail }, null, 2));
-        health(false, detail);
+    function buildAiUrl(kind, sym, tf){
+      // основной вариант (новый): kind=analysis|corridor
+      const urlKind = `/api/hud_ai.php?kind=${encodeURIComponent(kind)}&sym=${encodeURIComponent(sym)}&tf=${tf}`;
+      // fallback (старый): mode=now|entry
+      const mode = (kind === 'analysis') ? 'now' : 'entry';
+      const urlMode = `/api/hud_ai.php?mode=${mode}&sym=${encodeURIComponent(sym)}&tf=${tf}`;
+      return {urlKind, urlMode};
+    }
+
+    async function callAI(kind){
+      const sym = $('#sym').value.trim();
+      const tf = tfNum($('#tf').value);
+
+      const {urlKind, urlMode} = buildAiUrl(kind, sym, tf);
+
+      // 1) пробуем новый контракт
+      try{
+        const j = await fetchJSON(urlKind);
+        return j;
+      }catch(e){
+        // 2) если сервер ещё на старом контракте — попробуем mode=…
+        diag(`fallback → ${urlMode}`);
+        return await fetchJSON(urlMode);
       }
     }
 
-    async function doEntry() {
-      const { sym, t } = params();
-      const url = `/api/hud_ai.php?mode=entry&sym=${sym}&t=${t}`;
-      const r = await fetchJSON(url);
-      if (r.ok && r.json && r.json.ok !== false) {
-        show($('#outEntry'), r.json);
-        health(true);
-      } else {
-        const detail = r.json?.detail || r.error || '';
-        show($('#outEntry'), r.text || JSON.stringify(r.json || { error: detail }, null, 2));
-        health(false, detail);
-      }
+    async function doNow(){
+      const data = await callAI('analysis');
+      pretty('#nowBox', data);
     }
 
-    async function doStrict() {
-      const { sym, t } = params();
-      const url = `/api/hud_api_strict.php?sym=${sym}&t=${t}&limit=3`;
-      const r = await fetchJSON(url);
-      if (r.ok && r.json && r.json.ok !== false) {
-        show($('#outStrict'), r.json);
-        health(true);
-      } else {
-        const detail = r.json?.detail || r.error || '';
-        show($('#outStrict'), r.text || JSON.stringify(r.json || { error: detail }, null, 2));
-        health(false, detail);
-      }
+    async function doEntry(){
+      const data = await callAI('corridor');
+      pretty('#entryBox', data);
     }
 
-    // ===== bindings =====
-    $('#btnNow').addEventListener('click', doNow);
-    $('#btnEntry').addEventListener('click', doEntry);
-    $('#btnStrict').addEventListener('click', doStrict);
+    async function loadStrict(){
+      const sym = $('#sym').value.trim();
+      const tf = tfNum($('#tf').value);
+      const url = `/api/hud_api_strict.php?sym=${encodeURIComponent(sym)}&tf=${tf}&limit=3`;
+      const j = await fetchJSON(url);
+      pretty('#strictBox', j);
+    }
 
-    // первый рендер
-    health(true, '');
-    // можно включить авто‑обновление анализа (разкомментируй при необходимости)
-    // setInterval(doNow, 60_000);
+    // Автообновление «Текущий анализ» раз в 60 сек.
+    let _autoTimer = null;
+    function startAuto(){
+      stopAuto();
+      _autoTimer = setInterval(doNow, 60_000);
+    }
+    function stopAuto(){
+      if(_autoTimer){ clearInterval(_autoTimer); _autoTimer = null; }
+    }
+
+    // UI
+    $('#btnNow').addEventListener('click', async ()=>{
+      try{ await doNow(); }catch{}
+    });
+    $('#btnEntry').addEventListener('click', async ()=>{
+      try{ await doEntry(); }catch{}
+    });
+    $('#tf').addEventListener('change', async ()=>{
+      // при смене ТФ подгружаем свежие блоки
+      try{ await Promise.all([doNow(), doEntry(), loadStrict()]); }catch{}
+    });
+    $('#sym').addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ doNow().catch(()=>{}); loadStrict().catch(()=>{}); }
+    });
+
+    // Первичная загрузка
+    (async ()=>{
+      // «пробный пинг» бэкенда
+      try{
+        const ping = await fetchJSON('/analyze.php?mode=probe');
+        $('#ping').textContent = 'OK';
+        $('#ping').style.color = 'var(--ok)';
+      }catch{
+        $('#ping').textContent = 'ERR';
+        $('#ping').style.color = 'var(--err)';
+      }
+
+      try{
+        await doNow();
+        await doEntry();
+        await loadStrict();
+        startAuto();
+      }catch{}
+    })();
   </script>
 </body>
 </html>
