@@ -5,213 +5,190 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>HUD Dashboard</title>
   <style>
-    :root{
-      --bg:#0e1013; --card:#161a1f; --muted:#a9b0bb; --text:#e7ecf3; --ok:#36d399; --warn:#ffd166; --err:#ff6b6b;
-      --accent:#3b82f6; --accent-2:#2563eb; --mono:#9fe870;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
-    header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #1f242c}
-    h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.2px}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
-    .card{background:var(--card);border:1px solid #212733;border-radius:12px;overflow:hidden}
-    .card h3{margin:0;padding:10px 12px;border-bottom:1px solid #212733;font-size:13px;color:var(--muted);letter-spacing:.3px}
-    .card .body{padding:12px}
-    .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    label{color:var(--muted);font-size:12px}
-    input[type=text], select{
-      background:#0f1318;color:var(--text);border:1px solid #2a3240;border-radius:8px;padding:8px 10px;outline:none;
-    }
-    button{
-      background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 12px;font-weight:600;cursor:pointer
-    }
-    button:hover{background:var(--accent-2)}
-    .btn-ghost{background:#0f1318;border:1px solid #2a3240;color:var(--muted)}
-    .status{font-size:12px;color:var(--ok);margin-left:auto}
-    pre{
-      margin:0;background:#0b0e12;border:1px solid #202632;border-radius:10px;padding:10px;overflow:auto;
-      color:var(--mono);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
-    }
-    .stack{display:grid;gap:16px}
-    .diag-line{color:#9be5a7;font:12px/1.4 ui-monospace,monospace;white-space:pre}
-    .footer{padding:10px 16px;color:var(--muted);font-size:12px}
-    .right{display:grid;gap:16px}
-    @media (max-width:1100px){ .row{grid-template-columns:1fr} }
+    :root { --bg:#0f1216; --panel:#171b21; --muted:#8b97a8; --ok:#30d158; --err:#ff453a; --hl:#b6f397; --mono:#c0f2c0; }
+    html,body{margin:0;padding:0;background:var(--bg);color:#e6eef7;font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";}
+    .wrap{max-width:1400px;margin:18px auto;padding:0 14px;}
+    .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+    .bar .sp{flex:1}
+    .inp,.sel,.btn{height:36px;border-radius:8px;border:1px solid #2a2f38;background:#12161c;color:#e6eef7;padding:0 10px}
+    .btn{background:#1e2430;border-color:#2f3642;cursor:pointer}
+    .btn:hover{background:#222a37}
+    .pill{padding:4px 10px;border-radius:999px;background:#141a22;border:1px solid #2a303a;color:var(--muted)}
+    .grid{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+    @media (max-width:1100px){.grid{grid-template-columns:1fr}}
+    .card{background:var(--panel);border:1px solid #232a35;border-radius:12px;overflow:hidden}
+    .card h3{margin:0;padding:10px 12px;border-bottom:1px solid #222a33;color:#a9b6c7;font-weight:600}
+    .out{padding:10px 12px;overflow:auto;max-height:520px}
+    pre{margin:0;white-space:pre-wrap;word-break:break-word;color:var(--mono)}
+    .muted{color:var(--muted)}
+    .ok{color:var(--ok)} .err{color:var(--err)}
+    .foot{margin-top:10px;color:#6b7686;text-align:right}
+    .logline{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+    .log-ok{color:var(--ok)} .log-err{color:var(--err)}
   </style>
 </head>
 <body>
-  <header>
-    <h1>HUD Dashboard</h1>
-    <div class="controls">
-      <label>Пара:</label>
-      <input id="sym" type="text" value="BINANCE:BTCUSDT" spellcheck="false" />
-      <label>TF:</label>
-      <select id="tf">
-        <option>1m</option><option selected>5m</option><option>15m</option><option>60m</option>
-      </select>
-      <button id="btnNow">Получить анализ</button>
-      <button id="btnEntry" class="btn-ghost">Проверить «коридор сделки»</button>
-      <span id="ping" class="status">OK</span>
-    </div>
-  </header>
-
-  <div class="row">
-    <div class="stack">
-      <div class="card">
-        <h3>Текущий анализ</h3>
-        <div class="body"><pre id="nowBox">—</pre></div>
-      </div>
-
-      <div class="card">
-        <h3>Последние записи (строго UTC)</h3>
-        <div class="body"><pre id="strictBox">—</pre></div>
-      </div>
-    </div>
-
-    <div class="right">
-      <div class="card">
-        <h3>Сигнал входа (коридор)</h3>
-        <div class="body"><pre id="entryBox">—</pre></div>
-      </div>
-
-      <div class="card">
-        <h3>Диагностика запросов</h3>
-        <div class="body">
-          <div id="diag"></div>
-        </div>
-      </div>
-    </div>
+<div class="wrap">
+  <div class="bar">
+    <strong class="pill">HUD Dashboard</strong>
+    <span class="pill">Пара:</span>
+    <input id="sym" class="inp" value="BINANCE:BTCUSDT" spellcheck="false" />
+    <span class="pill">TF:</span>
+    <select id="tf" class="sel">
+      <option>1m</option><option selected>5m</option><option>15m</option>
+      <option>1h</option><option>4h</option>
+    </select>
+    <button id="btnNow" class="btn">Получить анализ</button>
+    <button id="btnWindow" class="btn">Проверить «коридор сделки»</button>
+    <span id="probe" class="pill">OK</span>
+    <span class="sp"></span>
+    <span class="muted">ver: 2025‑08‑25</span>
   </div>
 
-  <div class="footer">Источник данных: API HUD (<code>cryptobavaro.online/api/*</code>)</div>
+  <div class="grid">
+    <div class="card">
+      <h3>Текущий анализ</h3>
+      <div id="out_now" class="out"><pre class="muted">—</pre></div>
+    </div>
 
-  <script>
-    const $ = s => document.querySelector(s);
-    const diag = (txt, ok=true) => {
-      const ts = new Date().toISOString().replace('T',' ').replace('Z','Z');
-      const el = document.createElement('div');
-      el.className = 'diag-line';
-      el.style.color = ok ? '#9be5a7' : 'var(--err)';
-      el.textContent = `[${ts}] ${txt}`;
-      $('#diag').prepend(el);
-    };
+    <div class="card">
+      <h3>Сигнал входа (коридор)</h3>
+      <div id="out_window" class="out"><pre class="muted">—</pre></div>
+    </div>
 
-    const tfNum = (tfStr) => parseInt(tfStr.replace(/\D/g,''),10) || 5;
+    <div class="card" style="grid-column:1/2">
+      <h3>Последние записи (строго UTC)</h3>
+      <div id="out_strict" class="out"><pre class="muted">—</pre></div>
+      <div class="foot muted">Источник данных: API HUD (/api/*)</div>
+    </div>
 
-    async function fetchJSON(url) {
-      const t0 = performance.now();
-      try{
-        const res = await fetch(url, {cache:'no-store'});
-        const text = await res.text(); // читаем как текст для диагностики
-        let json;
-        try { json = JSON.parse(text); }
-        catch(e){
-          diag(`ERR ${res.status} ${url}\n↳ BODY: ${text.slice(0,200)}…`, false);
-          throw new Error('bad_json');
-        }
-        const ms = Math.round(performance.now() - t0);
-        diag(`GET ${url}  • ${ms} ms`);
-        return json;
-      }catch(e){
-        diag(`EXC ${url}  • ${e}`, false);
-        throw e;
-      }
+    <div class="card" style="grid-column:2/3">
+      <h3>Диагностика запросов</h3>
+      <div id="diag" class="out"><pre class="muted">—</pre></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const qs = sel => document.querySelector(sel);
+const symEl = qs('#sym');
+const tfEl  = qs('#tf');
+const outNow = qs('#out_now');
+const outWindow = qs('#out_window');
+const outStrict = qs('#out_strict');
+const diag = qs('#diag');
+const probeEl = qs('#probe');
+
+const logs = [];
+function log(line, ok=true){
+  const ts = new Date().toISOString().replace('T',' ').replace('Z',' UTC');
+  logs.unshift(`[${ts}] ${line}`);
+  if(logs.length>80) logs.length=80;
+  diag.innerHTML = `<pre>${logs.map(l=>{
+    const cls = l.includes(' ERR ')||l.toLowerCase().includes('error') ? 'log-err' : 'log-ok';
+    return `<span class="logline ${cls}">${l}</span>`;
+  }).join('\n')}</pre>`;
+}
+
+function tfNum(){
+  const m = String(tfEl.value||'5m').toLowerCase().match(/^(\d+)(m|h)$/);
+  if(!m) return 5;
+  const n = +m[1], u = m[2];
+  return u==='m' ? n : n*60;
+}
+
+function pretty(json){
+  try{ return JSON.stringify(json, null, 2); }
+  catch(e){ return String(json); }
+}
+
+async function call(url, params){
+  const u = new URL(url, location.origin);
+  Object.entries(params||{}).forEach(([k,v])=> u.searchParams.set(k,v));
+  const started = performance.now();
+  const res = await fetch(u.toString(), {cache:'no-store'});
+  const ms = Math.round(performance.now()-started);
+  let body = '';
+  try{ body = await res.text(); }catch{}
+  let json;
+  try{ json = JSON.parse(body); }catch(e){
+    log(`ERR ${u.pathname}${u.search}  •  bad_json`, false);
+    throw new Error('bad_json');
+  }
+  log(`${res.status} ${u.pathname}${u.search}  •  ${ms} ms`, res.ok);
+  return json;
+}
+
+async function ping(){
+  try{
+    const u = new URL('/analyze.php', location.origin);
+    u.search = '?mode=probe';
+    const t0 = performance.now();
+    const res = await fetch(u.toString(), {cache:'no-store'});
+    const text = await res.text();
+    const dt = Math.round(performance.now()-t0);
+    if(res.ok && text.includes('alive')){
+      probeEl.textContent = 'OK';
+      probeEl.style.color = 'var(--ok)';
+      log(`GET /analyze.php?mode=probe  •  ${dt} ms  ↳ BODY: ${text.trim()}`);
+    }else{
+      probeEl.textContent = 'ERR';
+      probeEl.style.color = 'var(--err)';
+      log(`ERR /analyze.php?mode=probe`, false);
     }
+  }catch(e){
+    probeEl.textContent = 'ERR';
+    probeEl.style.color = 'var(--err)';
+    log(`ERR /analyze.php?mode=probe`, false);
+  }
+}
 
-    // 🔧 для /analyze.php?mode=probe — читаем как ТЕКСТ, не JSON
-    async function fetchTEXT(url){
-      const t0 = performance.now();
-      const res = await fetch(url, {cache:'no-store'});
-      const txt = await res.text();
-      const ms = Math.round(performance.now() - t0);
-      diag(`GET ${url}  • ${ms} ms`);
-      return txt;
-    }
+async function loadNow(){
+  const s = symEl.value.trim();
+  try{
+    const json = await call('/api/hud_ai.php', { mode:'now', sym:s, tf: tfNum() });
+    outNow.innerHTML = `<pre>${pretty(json)}</pre>`;
+  }catch(e){
+    outNow.innerHTML = `<pre class="err">${e.message||'error'}</pre>`;
+  }
+}
 
-    function pretty(target, data){
-      $(target).textContent = JSON.stringify(data, null, 2);
-    }
+async function loadWindow(){
+  const s = symEl.value.trim();
+  try{
+    // ВАЖНО: быстрый фикс — используем mode=window (вместо mode=edge/kind=corridor)
+    const json = await call('/api/hud_ai.php', { mode:'window', sym:s, tf: tfNum(), limit:3 });
+    outWindow.innerHTML = `<pre>${pretty(json)}</pre>`;
+  }catch(e){
+    outWindow.innerHTML = `<pre class="err">${e.message||'error'}</pre>`;
+  }
+}
 
-    function buildAiUrl(kind, sym, tf){
-      // новый контракт
-      const urlKind = `/api/hud_ai.php?kind=${encodeURIComponent(kind)}&sym=${encodeURIComponent(sym)}&tf=${tf}`;
-      // обратная совместимость
-      const mode = (kind === 'analysis') ? 'now' : 'entry';
-      const urlMode = `/api/hud_ai.php?mode=${mode}&sym=${encodeURIComponent(sym)}&tf=${tf}`;
-      return {urlKind, urlMode};
-    }
+async function loadStrict(){
+  const s = symEl.value.trim();
+  try{
+    const json = await call('/api/hud_api_strict.php', { sym:s, tf: tfNum(), limit:3 });
+    outStrict.innerHTML = `<pre>${pretty(json)}</pre>`;
+  }catch(e){
+    outStrict.innerHTML = `<pre class="err">${e.message||'error'}</pre>`;
+  }
+}
 
-    async function callAI(kind){
-      const sym = $('#sym').value.trim();
-      const tf = tfNum($('#tf').value);
+qs('#btnNow').addEventListener('click', async ()=>{
+  await loadNow(); await loadStrict();
+});
+qs('#btnWindow').addEventListener('click', async ()=>{
+  await loadWindow(); await loadStrict();
+});
 
-      const {urlKind, urlMode} = buildAiUrl(kind, sym, tf);
-
-      try{
-        const j = await fetchJSON(urlKind);
-        return j;
-      }catch(e){
-        diag(`fallback → ${urlMode}`);
-        return await fetchJSON(urlMode);
-      }
-    }
-
-    async function doNow(){
-      const data = await callAI('analysis');
-      pretty('#nowBox', data);
-    }
-
-    async function doEntry(){
-      const data = await callAI('corridor');
-      pretty('#entryBox', data);
-    }
-
-    async function loadStrict(){
-      const sym = $('#sym').value.trim();
-      const tf = tfNum($('#tf').value);
-      const url = `/api/hud_api_strict.php?sym=${encodeURIComponent(sym)}&tf=${tf}&limit=3`;
-      const j = await fetchJSON(url);
-      pretty('#strictBox', j);
-    }
-
-    // Автообновление «Текущий анализ» раз в 60 сек.
-    let _autoTimer = null;
-    function startAuto(){
-      stopAuto();
-      _autoTimer = setInterval(doNow, 60_000);
-    }
-    function stopAuto(){
-      if(_autoTimer){ clearInterval(_autoTimer); _autoTimer = null; }
-    }
-
-    // UI
-    $('#btnNow').addEventListener('click', async ()=>{ try{ await doNow(); }catch{} });
-    $('#btnEntry').addEventListener('click', async ()=>{ try{ await doEntry(); }catch{} });
-    $('#tf').addEventListener('change', async ()=>{ try{ await Promise.all([doNow(), doEntry(), loadStrict()]); }catch{} });
-    $('#sym').addEventListener('keydown', e=>{
-      if(e.key==='Enter'){ doNow().catch(()=>{}); loadStrict().catch(()=>{}); }
-    });
-
-    // Первичная загрузка
-    (async ()=>{
-      // ✅ пробный пинг: читаем как текст и считаем успехом любой 200 + наличие «alive»
-      try{
-        const txt = await fetchTEXT('/analyze.php?mode=probe');
-        const ok = /alive/i.test(txt);
-        $('#ping').textContent = ok ? 'OK' : 'ERR';
-        $('#ping').style.color = ok ? 'var(--ok)' : 'var(--err)';
-      }catch{
-        $('#ping').textContent = 'ERR';
-        $('#ping').style.color = 'var(--err)';
-      }
-
-      try{
-        await doNow();
-        await doEntry();
-        await loadStrict();
-        startAuto();
-      }catch{}
-    })();
-  </script>
+(async function boot(){
+  await ping();
+  await loadNow();
+  await loadWindow();
+  await loadStrict();
+  // автообновление блока анализа и строгих записей
+  setInterval(()=>{ loadNow(); loadStrict(); }, 30_000);
+})();
+</script>
 </body>
 </html>
