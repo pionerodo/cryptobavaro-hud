@@ -2,51 +2,33 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>HUD Dashboard</title>
   <style>
-    :root{
-      --bg:#0b0c10;--card:#11141a;--stroke:#232a36;--muted:#96a2b3;--fg:#e6edf3;
-      --chip:#0f1320;--ok:#37c977;--bad:#ff5c5c;--warn:#f0ad4e;--code:#0b0e16;
-    }
-    *{box-sizing:border-box}
-    body{margin:18px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif}
-    h1{margin:0 0 10px 0;font-size:22px}
-    .muted{color:var(--muted)}
+    :root{--bg:#0b0c10;--card:#11141a;--stroke:#232a36;--muted:#96a2b3;--fg:#e6edf3;--chip:#0f1320;--ok:#37c977;--bad:#ff646e;--code:#0b0e16}
+    *{box-sizing:border-box} body{margin:18px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif}
+    h1{margin:0 0 10px 0;font-size:22px} .muted{color:var(--muted)}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .toolbar{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:-8px}
+    .pill{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--stroke);background:var(--chip);padding:3px 10px;border-radius:30px;font-size:12px}
     .card{background:var(--card);border:1px solid var(--stroke);border-radius:14px;padding:14px;margin:10px 0}
     input,select,button{background:var(--chip);color:var(--fg);border:1px solid var(--stroke);border-radius:10px;padding:6px 10px}
-    button{cursor:pointer}
-    .pill{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--stroke);background:var(--chip);padding:3px 10px;border-radius:30px;font-size:12px}
-    .kpi{display:grid;grid-template-columns:repeat(6,minmax(90px,1fr));gap:10px;margin:8px 0 6px 0}
-    .k{border:1px solid var(--stroke);border-radius:10px;padding:8px}
-    .k .t{font-size:11px;color:var(--muted);text-transform:uppercase}
-    .k .v{font-size:15px;margin-top:4px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    button{cursor:pointer} .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .kpi{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:8px 0}
+    .k{border:1px solid var(--stroke);border-radius:10px;padding:8px}.k .t{font-size:11px;color:var(--muted);text-transform:uppercase}.k .v{font-size:15px;margin-top:4px}
     pre{white-space:pre-wrap;word-wrap:break-word;background:var(--code);border:1px solid #1f2740;border-radius:12px;padding:10px;max-height:320px;overflow:auto}
-    .playbook{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:8px}
-    .pb{border:1px solid var(--stroke);border-radius:12px;padding:10px;background:#0e1119}
-    .pb .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-    .dir{font-weight:600;text-transform:uppercase}
-    .dir.long{color:#7bd88f}.dir.short{color:#ff7b7b}
-    .badge{border:1px solid var(--stroke);border-radius:8px;padding:2px 6px;font-size:12px;color:var(--muted)}
-    .list{margin:6px 0 0 16px}
-    .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.35;background:var(--code);border:1px solid #1f2740;border-radius:12px;padding:10px;height:190px;overflow:auto}
-    .ok{color:var(--ok)} .err{color:var(--bad)} .warn{color:var(--warn)}
-    .toolbar{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:-8px}
-    .right{float:right}
+    .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.35;background:var(--code);border:1px solid #1f2740;border-radius:12px;padding:10px;height:180px;overflow:auto}
+    .ok{color:var(--ok)} .err{color:var(--bad)}
   </style>
 </head>
 <body>
   <div class="row" style="justify-content:space-between;align-items:flex-end">
     <div>
       <h1>HUD Dashboard</h1>
-      <div class="muted">Ручной запрос к ChatGPT для интерпретации последних сигналов и «коридора входа».</div>
+      <div class="muted">Ручной запрос к ChatGPT‑интерпретации и «коридору входа» на основе последних записей в БД.</div>
     </div>
     <div class="toolbar">
-      <label class="pill">
-        <input id="auto" type="checkbox"> авто‑обновление (30s)
-      </label>
+      <label class="pill"><input id="auto" type="checkbox"> авто‑обновление (30s)</label>
       <span class="pill">ver: <span id="ver"></span></span>
     </div>
   </div>
@@ -55,7 +37,7 @@
     <label>пара <input id="sym" value="BINANCE:BTCUSDT" size="18"></label>
     <label>TF
       <select id="tf">
-        <option value="5">5m</option>
+        <option value="5" selected>5m</option>
         <option value="15">15m</option>
         <option value="60">1h</option>
       </select>
@@ -66,210 +48,138 @@
   </div>
 
   <div class="grid">
-    <!-- ЛЕВАЯ КОЛОНКА: текущий анализ -->
-    <div class="card" id="card-now">
-      <div class="row"><span class="pill">Текущий анализ</span></div>
-      <div class="kpi" id="kpi-now">
-        <div class="k"><div class="t">symbol</div><div class="v" id="now-symbol">—</div></div>
-        <div class="k"><div class="t">regime</div><div class="v" id="now-regime">—</div></div>
-        <div class="k"><div class="t">bias</div><div class="v" id="now-bias">—</div></div>
-        <div class="k"><div class="t">confidence</div><div class="v" id="now-conf">—</div></div>
-        <div class="k"><div class="t">price</div><div class="v" id="now-price">—</div></div>
-        <div class="k"><div class="t">bar (UTC)</div><div class="v" id="now-bar">—</div></div>
-      </div>
-
-      <div id="ai-now" style="display:none">
-        <div class="pill">AI: краткие заметки</div>
-        <div id="now-notes" class="muted" style="margin:6px 0 8px 0"></div>
-        <div class="pill">AI: плейбук</div>
-        <div id="now-playbook" class="playbook"></div>
-      </div>
-
-      <div class="pill" style="margin-top:8px">JSON ответа</div>
-      <pre id="json-now">—</pre>
-    </div>
-
-    <!-- ПРАВАЯ КОЛОНКА: «коридор» -->
-    <div class="card" id="card-edge">
-      <div class="row"><span class="pill">Сигнал входа (коридор)</span></div>
-      <div class="kpi" id="kpi-edge">
-        <div class="k"><div class="t">symbol</div><div class="v" id="edge-symbol">—</div></div>
-        <div class="k"><div class="t">regime</div><div class="v" id="edge-regime">—</div></div>
-        <div class="k"><div class="t">bias</div><div class="v" id="edge-bias">—</div></div>
-        <div class="k"><div class="t">confidence</div><div class="v" id="edge-conf">—</div></div>
-        <div class="k"><div class="t">price</div><div class="v" id="edge-price">—</div></div>
-        <div class="k"><div class="t">bar (UTC)</div><div class="v" id="edge-bar">—</div></div>
-      </div>
-
-      <div id="ai-edge" style="display:none">
-        <div class="pill">AI: краткие заметки</div>
-        <div id="edge-notes" class="muted" style="margin:6px 0 8px 0"></div>
-        <div class="pill">AI: плейбук</div>
-        <div id="edge-playbook" class="playbook"></div>
-      </div>
-
-      <div class="pill" style="margin-top:8px">JSON ответа</div>
-      <pre id="json-edge">—</pre>
-    </div>
-  </div>
-
-  <!-- НИЖНИЙ БЛОК: последние записи и диагностика -->
-  <div class="grid">
+    <!-- ТЕКУЩИЙ АНАЛИЗ -->
     <div class="card">
-      <div class="row">
-        <span class="pill">Последние записи (строго UTC)</span>
-        <button id="btnRaw">Обновить</button>
-        <span id="raw-src" class="muted"></span>
+      <div class="row"><span class="pill">Текущий анализ</span></div>
+      <div class="kpi">
+        <div class="k"><div class="t">symbol</div><div class="v" id="now_symbol">—</div></div>
+        <div class="k"><div class="t">regime</div><div class="v" id="now_regime">—</div></div>
+        <div class="k"><div class="t">bias</div><div class="v" id="now_bias">—</div></div>
+        <div class="k"><div class="t">confidence</div><div class="v" id="now_conf">—</div></div>
+        <div class="k"><div class="t">price</div><div class="v" id="now_price">—</div></div>
+        <div class="k"><div class="t">bar (UTC)</div><div class="v" id="now_bar">—</div></div>
       </div>
-      <pre id="raw">—</pre>
+      <div class="muted">JSON ответа:</div>
+      <pre id="now_json">{}</pre>
     </div>
+
+    <!-- СИГНАЛ ВХОДА -->
+    <div class="card">
+      <div class="row"><span class="pill">Сигнал входа (коридор)</span></div>
+      <div class="kpi">
+        <div class="k"><div class="t">symbol</div><div class="v" id="ed_symbol">—</div></div>
+        <div class="k"><div class="t">regime</div><div class="v" id="ed_regime">—</div></div>
+        <div class="k"><div class="t">bias</div><div class="v" id="ed_bias">—</div></div>
+        <div class="k"><div class="t">confidence</div><div class="v" id="ed_conf">—</div></div>
+        <div class="k"><div class="t">price</div><div class="v" id="ed_price">—</div></div>
+        <div class="k"><div class="t">bar (UTC)</div><div class="v" id="ed_bar">—</div></div>
+      </div>
+      <div class="muted">JSON ответа:</div>
+      <pre id="ed_json">{}</pre>
+    </div>
+
+    <!-- ПОСЛЕДНИЕ ЗАПИСИ -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <span class="pill">Последние записи (строго UTC)</span>
+        <button id="btnTail">Обновить</button>
+      </div>
+      <pre id="tail_json">{}</pre>
+      <div class="muted">Источник: /api/hud_api_strict.php</div>
+    </div>
+
+    <!-- ДИАГНОСТИКА -->
     <div class="card">
       <div class="row"><span class="pill">Диагностика запросов</span></div>
-      <div id="log" class="log"></div>
+      <div class="log" id="log"></div>
     </div>
   </div>
 
 <script>
-  // ---- утилиты --------------------------------------------------------------
-  const $ = sel => document.querySelector(sel);
-  $('#ver').textContent = new Date().toISOString().slice(0,10);
+const $ = s => document.querySelector(s);
+const logBox = $('#log');
+const verEl  = $('#ver');
+verEl.textContent = new Date().toISOString().slice(0,10);
 
-  function log(line, cls=''){
-    const el = $('#log');
-    const ts = new Date().toISOString().replace('T',' ').replace('Z','Z');
-    const div = document.createElement('div');
-    div.className = cls;
-    div.textContent = `[${ts}] ${line}`;
-    el.prepend(div);
+function log(line, ok=true) {
+  const t = new Date().toISOString().replace('T',' ').replace('Z','');
+  const span = document.createElement('div');
+  span.innerHTML = `[${t}] ${ok?'<span class="ok">200</span>':'<span class="err">ERR</span>'}  ${line}`;
+  logBox.appendChild(span);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+async function api(path, params={}) {
+  const url = new URL(path, location.origin);
+  Object.entries(params).forEach(([k,v]) => url.searchParams.set(k,v));
+  const r = await fetch(url);
+  const txt = await r.text();
+  try {
+    const json = JSON.parse(txt);
+    log(`${url.pathname}${url.search} • ${r.status} ms`, true);
+    return json;
+  } catch (_) {
+    log(`${url.pathname}${url.search} • bad_json`, false);
+    return {ok:false, raw: txt};
   }
+}
 
-  async function api(url, params){
-    const qs = new URLSearchParams(params).toString();
-    const full = `${url}?${qs}`;
-    const t0 = performance.now();
-    try{
-      const r = await fetch(full, {cache:'no-store'});
-      const text = await r.text();
-      const ms = Math.round(performance.now()-t0);
-      let data;
-      try{ data = JSON.parse(text); }catch(e){
-        log(`ERR ${r.status} ${url} — bad_json`, 'err');
-        return {ok:false, error:'bad_json', status:r.status, raw:text};
-      }
-      log(`${r.status} ${full} • ${ms} ms`, r.ok?'ok':'err');
-      return data;
-    }catch(e){
-      log(`EXC ${url} — ${String(e)}`, 'err');
-      return {ok:false, error:String(e)};
+function fillKpi(prefix, a) {
+  $(`#${prefix}_symbol`).textContent = a?.symbol ?? '—';
+  $(`#${prefix}_regime`).textContent = a?.regime ?? '—';
+  $(`#${prefix}_bias`).textContent = a?.bias ?? '—';
+  $(`#${prefix}_conf`).textContent = a?.confidence ?? '—';
+  $(`#${prefix}_price`).textContent = a?.price ?? '—';
+  $(`#${prefix}_bar`).textContent = a?.t_utc ?? '—';
+}
+
+async function run(kind) {
+  const sym = $('#sym').value.trim();
+  const tf  = $('#tf').value;
+  const data = await api('/api/hud_ai.php', {sym, tf, kind});
+
+  if (data.ok) {
+    const a = data.analysis || {};
+    if (kind === 'analysis') {
+      fillKpi('now', a);
+      $('#now_json').textContent = JSON.stringify(data, null, 2);
+    } else {
+      fillKpi('ed', a);
+      $('#ed_json').textContent = JSON.stringify(data, null, 2);
     }
+  } else {
+    (kind==='analysis' ? $('#now_json') : $('#ed_json')).textContent = JSON.stringify(data, null, 2);
   }
+}
 
-  function setKPIs(prefix, a){
-    const safe = (v)=> (v===null||v===undefined||v==='') ? '—' : v;
-    $(`#${prefix}-symbol`).textContent = safe(a?.symbol);
-    $(`#${prefix}-regime`).textContent = safe(a?.regime);
-    $(`#${prefix}-bias`).textContent = safe(a?.bias);
-    $(`#${prefix}-conf`).textContent = safe(a?.confidence);
-    $(`#${prefix}-price`).textContent = safe(a?.price);
-    $(`#${prefix}-bar`).textContent = safe(a?.t_utc ?? a?.bar_utc ?? '—');
-  }
+async function tail() {
+  const sym = $('#sym').value.trim();
+  const tf  = $('#tf').value;
+  const data = await api('/api/hud_api_strict.php', {sym, tf, limit:3});
+  $('#tail_json').textContent = JSON.stringify(data, null, 2);
+}
 
-  function renderPlaybook(placeId, playbook){
-    const box = document.getElementById(placeId);
-    box.innerHTML = '';
-    if(!Array.isArray(playbook) || playbook.length===0){
-      box.innerHTML = '<div class="muted">нет сценариев</div>';
-      return;
-    }
-    for(const p of playbook){
-      const el = document.createElement('div');
-      el.className = 'pb';
-      const conf = (p.confidence!=null)? `${p.confidence}`:'—';
-      el.innerHTML = `
-        <div class="hdr">
-          <div class="dir ${p.dir==='short'?'short':'long'}">${p.dir||'—'}</div>
-          <div class="badge">conf: ${conf}</div>
-        </div>
-        <div><b>setup:</b> ${p.setup||'—'}</div>
-        <div><b>entry:</b> ${p.entry||'—'}</div>
-        <div><b>invalidation:</b> ${p.invalidation||'—'}</div>
-        <div><b>tp1:</b> ${p.tp1||'—'} &nbsp; <b>tp2:</b> ${p.tp2||'—'}</div>
-        ${Array.isArray(p.why) && p.why.length ? `<div class="muted">почему:</div><ul class="list">${p.why.map(w=>`<li>${w}</li>`).join('')}</ul>`:''}
-      `;
-      box.appendChild(el);
-    }
-  }
+$('#btnNow').onclick  = () => run('analysis');
+$('#btnEdge').onclick = () => run('corridor');
+$('#btnTail').onclick = tail;
 
-  function showAI(prefix, ai){
-    const wrap = document.getElementById(`ai-${prefix}`);
-    if(ai && (ai.notes || (Array.isArray(ai.playbook) && ai.playbook.length))){
-      wrap.style.display = '';
-      document.getElementById(`${prefix}-notes`).textContent = ai.notes || '';
-      renderPlaybook(`${prefix}-playbook`, ai.playbook || []);
-    }else{
-      wrap.style.display = 'none';
-      document.getElementById(`${prefix}-notes`).textContent = '';
-      document.getElementById(`${prefix}-playbook`).innerHTML='';
-    }
-  }
+let tm = null;
+$('#auto').onchange = (e)=>{
+  if (e.target.checked) {
+    tm = setInterval(async ()=>{
+      await run('analysis');
+      await run('corridor');
+      await tail();
+    }, 30000);
+  } else if (tm) { clearInterval(tm); }
+};
 
-  // ---- действия -------------------------------------------------------------
-  async function loadNow(){
-    const sym = $('#sym').value.trim();
-    const tf  = $('#tf').value;
-    $('#status').textContent = 'загружаю…';
-    const data = await api('/api/hud_ai.php', {kind:'analysis', sym, tf});
-    $('#json-now').textContent = JSON.stringify(data, null, 2);
-    if(data && data.analysis){
-      setKPIs('now', data.analysis);
-      showAI('now', data.ai);
-    }
-    $('#status').textContent = data && data.ok ? 'OK' : 'ERR';
-    return data;
-  }
-
-  async function loadEdge(){
-    const sym = $('#sym').value.trim();
-    const tf  = $('#tf').value;
-    $('#status').textContent = 'загружаю…';
-    const data = await api('/api/hud_ai.php', {kind:'corridor', sym, tf});
-    $('#json-edge').textContent = JSON.stringify(data, null, 2);
-    if(data && data.analysis){
-      setKPIs('edge', data.analysis);
-      showAI('edge', data.ai);
-    }
-    $('#status').textContent = data && data.ok ? 'OK' : 'ERR';
-    return data;
-  }
-
-  async function loadRaw(limit=3){
-    const sym = $('#sym').value.trim();
-    const tf  = $('#tf').value;
-    const data = await api('/api/hud_api_strict.php', {sym, tf, limit});
-    $('#raw').textContent = JSON.stringify(data, null, 2);
-    $('#raw-src').textContent = 'Источник: /api/hud_api_strict.php';
-    return data;
-  }
-
-  // кнопки
-  $('#btnNow').onclick  = () => loadNow();
-  $('#btnEdge').onclick = () => loadEdge();
-  $('#btnRaw').onclick  = () => loadRaw(3);
-
-  // авто‑обновление
-  let timer=null;
-  $('#auto').addEventListener('change', ()=>{
-    if($('#auto').checked){
-      timer = setInterval(()=>{ loadNow(); loadEdge(); }, 30_000);
-    }else if(timer){ clearInterval(timer); timer=null; }
-  });
-
-  // первый запуск
-  (async ()=>{
-    await loadNow();
-    await loadEdge();
-    await loadRaw(3);
-  })();
+// первый рендер
+(async ()=>{
+  await run('analysis');
+  await run('corridor');
+  await tail();
+})();
 </script>
 </body>
 </html>
