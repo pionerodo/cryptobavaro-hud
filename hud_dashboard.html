@@ -1,227 +1,275 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>HUD Dashboard</title>
-<style>
-  :root{
-    --bg:#0e1116;--panel:#161b22;--panel-2:#0f1620;--text:#c9d1d9;--muted:#8b949e;
-    --green:#2ea043;--cyan:#3fbff0;--red:#f85149;--yellow:#f2cc60;--mono:#a0ffa0;
-    --border:#262b36;--chip:#202734;
-  }
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
-  header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
-  .left, .right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  h1{margin:0;font-size:16px;font-weight:600;letter-spacing:.3px}
-  select,button{background:var(--chip);color:var(--text);border:1px solid var(--border);border-radius:8px;height:32px;padding:6px 10px}
-  button{cursor:pointer}
-  button.primary{background:#1f6feb;border-color:#2d6cdf}
-  .okdot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;margin-left:6px}
-  .grid{display:grid;gap:12px;padding:12px}
-  @media(min-width:1100px){
-    .grid{
-      grid-template-columns:1fr 1fr;
-      grid-template-areas:
-       "a b"
-       "c d";
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>HUD Dashboard</title>
+  <style>
+    :root{
+      --bg:#0b0c10;--card:#11141a;--stroke:#232a36;--muted:#96a2b3;--fg:#e6edf3;
+      --chip:#0f1320;--ok:#37c977;--bad:#ff5c5c;--warn:#f0ad4e;--code:#0b0e16;
     }
-  }
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-  .card h2{margin:0;padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px;background:var(--panel-2)}
-  .content{padding:12px}
-  .row{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0}
-  .chip{background:var(--chip);border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted)}
-  .kv{display:grid;grid-template-columns:140px 1fr;gap:6px 12px}
-  pre{margin:0;background:#0b1117;border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--mono);overflow:auto;max-height:46vh}
-  .hint{color:var(--muted);font-size:12px;margin-top:6px}
-  .green{color:var(--green)} .red{color:var(--red)} .yellow{color:var(--yellow)}
-</style>
+    *{box-sizing:border-box}
+    body{margin:18px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif}
+    h1{margin:0 0 10px 0;font-size:22px}
+    .muted{color:var(--muted)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .card{background:var(--card);border:1px solid var(--stroke);border-radius:14px;padding:14px;margin:10px 0}
+    input,select,button{background:var(--chip);color:var(--fg);border:1px solid var(--stroke);border-radius:10px;padding:6px 10px}
+    button{cursor:pointer}
+    .pill{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--stroke);background:var(--chip);padding:3px 10px;border-radius:30px;font-size:12px}
+    .kpi{display:grid;grid-template-columns:repeat(6,minmax(90px,1fr));gap:10px;margin:8px 0 6px 0}
+    .k{border:1px solid var(--stroke);border-radius:10px;padding:8px}
+    .k .t{font-size:11px;color:var(--muted);text-transform:uppercase}
+    .k .v{font-size:15px;margin-top:4px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    pre{white-space:pre-wrap;word-wrap:break-word;background:var(--code);border:1px solid #1f2740;border-radius:12px;padding:10px;max-height:320px;overflow:auto}
+    .playbook{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:8px}
+    .pb{border:1px solid var(--stroke);border-radius:12px;padding:10px;background:#0e1119}
+    .pb .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+    .dir{font-weight:600;text-transform:uppercase}
+    .dir.long{color:#7bd88f}.dir.short{color:#ff7b7b}
+    .badge{border:1px solid var(--stroke);border-radius:8px;padding:2px 6px;font-size:12px;color:var(--muted)}
+    .list{margin:6px 0 0 16px}
+    .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.35;background:var(--code);border:1px solid #1f2740;border-radius:12px;padding:10px;height:190px;overflow:auto}
+    .ok{color:var(--ok)} .err{color:var(--bad)} .warn{color:var(--warn)}
+    .toolbar{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:-8px}
+    .right{float:right}
+  </style>
 </head>
 <body>
-
-<header>
-  <div class="left">
-    <h1>HUD Dashboard</h1>
-    <span class="chip">ver: <span id="ver">—</span></span>
+  <div class="row" style="justify-content:space-between;align-items:flex-end">
+    <div>
+      <h1>HUD Dashboard</h1>
+      <div class="muted">Ручной запрос к ChatGPT для интерпретации последних сигналов и «коридора входа».</div>
+    </div>
+    <div class="toolbar">
+      <label class="pill">
+        <input id="auto" type="checkbox"> авто‑обновление (30s)
+      </label>
+      <span class="pill">ver: <span id="ver"></span></span>
+    </div>
   </div>
-  <div class="right">
-    <label>Пара:</label>
-    <select id="sym">
-      <option>BINANCE:BTCUSDT</option>
-    </select>
-    <label>TF:</label>
-    <select id="tf">
-      <option value="5">5m</option>
-      <option value="15">15m</option>
-      <option value="60">1h</option>
-    </select>
-    <button id="btnNow" class="primary">Получить анализ</button>
-    <button id="btnCorridor">Проверить «коридор сделки»</button>
-    <span id="oklamp" class="okdot" title="API OK"></span>
+
+  <div class="row" style="gap:12px">
+    <label>пара <input id="sym" value="BINANCE:BTCUSDT" size="18"></label>
+    <label>TF
+      <select id="tf">
+        <option value="5">5m</option>
+        <option value="15">15m</option>
+        <option value="60">1h</option>
+      </select>
+    </label>
+    <button id="btnNow">Получить анализ</button>
+    <button id="btnEdge">Проверить «коридор сделки»</button>
+    <span id="status" class="muted"></span>
   </div>
-</header>
 
-<main class="grid">
-  <!-- A -->
-  <section class="card" style="grid-area:a">
-    <h2>Текущий анализ</h2>
-    <div class="content">
+  <div class="grid">
+    <!-- ЛЕВАЯ КОЛОНКА: текущий анализ -->
+    <div class="card" id="card-now">
+      <div class="row"><span class="pill">Текущий анализ</span></div>
+      <div class="kpi" id="kpi-now">
+        <div class="k"><div class="t">symbol</div><div class="v" id="now-symbol">—</div></div>
+        <div class="k"><div class="t">regime</div><div class="v" id="now-regime">—</div></div>
+        <div class="k"><div class="t">bias</div><div class="v" id="now-bias">—</div></div>
+        <div class="k"><div class="t">confidence</div><div class="v" id="now-conf">—</div></div>
+        <div class="k"><div class="t">price</div><div class="v" id="now-price">—</div></div>
+        <div class="k"><div class="t">bar (UTC)</div><div class="v" id="now-bar">—</div></div>
+      </div>
+
+      <div id="ai-now" style="display:none">
+        <div class="pill">AI: краткие заметки</div>
+        <div id="now-notes" class="muted" style="margin:6px 0 8px 0"></div>
+        <div class="pill">AI: плейбук</div>
+        <div id="now-playbook" class="playbook"></div>
+      </div>
+
+      <div class="pill" style="margin-top:8px">JSON ответа</div>
+      <pre id="json-now">—</pre>
+    </div>
+
+    <!-- ПРАВАЯ КОЛОНКА: «коридор» -->
+    <div class="card" id="card-edge">
+      <div class="row"><span class="pill">Сигнал входа (коридор)</span></div>
+      <div class="kpi" id="kpi-edge">
+        <div class="k"><div class="t">symbol</div><div class="v" id="edge-symbol">—</div></div>
+        <div class="k"><div class="t">regime</div><div class="v" id="edge-regime">—</div></div>
+        <div class="k"><div class="t">bias</div><div class="v" id="edge-bias">—</div></div>
+        <div class="k"><div class="t">confidence</div><div class="v" id="edge-conf">—</div></div>
+        <div class="k"><div class="t">price</div><div class="v" id="edge-price">—</div></div>
+        <div class="k"><div class="t">bar (UTC)</div><div class="v" id="edge-bar">—</div></div>
+      </div>
+
+      <div id="ai-edge" style="display:none">
+        <div class="pill">AI: краткие заметки</div>
+        <div id="edge-notes" class="muted" style="margin:6px 0 8px 0"></div>
+        <div class="pill">AI: плейбук</div>
+        <div id="edge-playbook" class="playbook"></div>
+      </div>
+
+      <div class="pill" style="margin-top:8px">JSON ответа</div>
+      <pre id="json-edge">—</pre>
+    </div>
+  </div>
+
+  <!-- НИЖНИЙ БЛОК: последние записи и диагностика -->
+  <div class="grid">
+    <div class="card">
       <div class="row">
-        <span class="chip">symbol: <span id="a-symbol">—</span></span>
-        <span class="chip">tf: <span id="a-tf">—</span></span>
+        <span class="pill">Последние записи (строго UTC)</span>
+        <button id="btnRaw">Обновить</button>
+        <span id="raw-src" class="muted"></span>
       </div>
-      <div class="kv">
-        <div>regime</div><div id="a-regime">—</div>
-        <div>bias</div><div id="a-bias">—</div>
-        <div>confidence</div><div id="a-conf">—</div>
-        <div>price</div><div id="a-price">—</div>
-        <div>bar (UTC)</div><div id="a-t_utc">—</div>
-        <div>analyzed_at</div><div id="a-an">—</div>
-      </div>
-      <div class="hint">JSON ответа:</div>
-      <pre id="a-pre">—</pre>
+      <pre id="raw">—</pre>
     </div>
-  </section>
-
-  <!-- B -->
-  <section class="card" style="grid-area:b">
-    <h2>Сигнал входа (коридор)</h2>
-    <div class="content">
-      <div class="row">
-        <span class="chip">symbol: <span id="e-symbol">—</span></span>
-        <span class="chip">tf: <span id="e-tf">—</span></span>
-      </div>
-      <div class="kv">
-        <div>regime</div><div id="e-regime">—</div>
-        <div>bias</div><div id="e-bias">—</div>
-        <div>confidence</div><div id="e-conf">—</div>
-        <div>price</div><div id="e-price">—</div>
-        <div>bar (UTC)</div><div id="e-t_utc">—</div>
-        <div>analyzed_at</div><div id="e-an">—</div>
-      </div>
-      <div class="hint">JSON ответа:</div>
-      <pre id="e-pre">—</pre>
+    <div class="card">
+      <div class="row"><span class="pill">Диагностика запросов</span></div>
+      <div id="log" class="log"></div>
     </div>
-  </section>
-
-  <!-- C -->
-  <section class="card" style="grid-area:c">
-    <h2>Последние записи (строго UTC)</h2>
-    <div class="content">
-      <pre id="s-pre">—</pre>
-      <div class="hint">Источник: <span class="muted">/api/hud_api_strict.php</span></div>
-    </div>
-  </section>
-
-  <!-- D -->
-  <section class="card" style="grid-area:d">
-    <h2>Диагностика запросов</h2>
-    <div class="content">
-      <pre id="log"></pre>
-    </div>
-  </section>
-</main>
+  </div>
 
 <script>
-const $ = sel => document.querySelector(sel);
-const log = (line, cls='') => {
-  const ts = new Date().toISOString().replace('T',' ').replace('Z',' UTC');
-  $('#log').textContent += `[${ts}] ${line}\n`;
-  $('#log').scrollTop = $('#log').scrollHeight;
-};
-
-const api = {
-  window(kind){ // 'analysis' | 'corridor'
-    const sym = encodeURIComponent($('#sym').value.trim());
-    const tf  = encodeURIComponent($('#tf').value.trim());
-    const url = `/api/hud_ai.php?kind=${kind}&sym=${sym}&tf=${tf}`;
-    return timedGET(url);
-  },
-  strict(){
-    const sym = encodeURIComponent($('#sym').value.trim());
-    const tf  = encodeURIComponent($('#tf').value.trim());
-    const url = `/api/hud_api_strict.php?sym=${sym}&tf=${tf}&limit=3`;
-    return timedGET(url);
-  },
-  probe(){
-    return timedGET(`/analyze.php?mode=probe`);
-  }
-};
-
-async function timedGET(url){
-  const t0 = performance.now();
-  let resp, text, json, ok=false;
-  try{
-    resp = await fetch(url, {cache:'no-store'});
-    text = await resp.text();
-    try{ json = JSON.parse(text); }catch{ json = null; }
-    ok = resp.ok;
-  }catch(e){
-    text = String(e);
-  }
-  const ms = Math.round(performance.now() - t0);
-  const status = ok ? '200' : (resp ? resp.status : 'ERR');
-  log(`${status} ${url}  •  ${ms} ms`);
-  return {ok, status, ms, text, json};
-}
-
-function fillAnalysis(prefix, data){
-  // data — JSON из /api/hud_ai.php с блоком analysis
-  const a = (data && data.analysis) ? data.analysis : null;
-  const m = data?.meta || {};
-  $(`#${prefix}-symbol`).textContent = m.symbol ?? '—';
-  $(`#${prefix}-tf`).textContent     = (m.tf ?? '').toString() || '—';
-
-  $(`#${prefix}-regime`).textContent = a?.regime ?? '—';
-  $(`#${prefix}-bias`).textContent   = a?.bias ?? '—';
-  $(`#${prefix}-conf`).textContent   = (a?.confidence ?? '—').toString();
-  $(`#${prefix}-price`).textContent  = (a?.price ?? '—').toString();
-  $(`#${prefix}-t_utc`).textContent  = a?.t_utc ?? '—';
-  $(`#${prefix}-an`).textContent     = a?.analyzed_at ?? '—';
-}
-
-async function loadAll(){
+  // ---- утилиты --------------------------------------------------------------
+  const $ = sel => document.querySelector(sel);
   $('#ver').textContent = new Date().toISOString().slice(0,10);
-  // 1) текущий анализ
-  const now = await api.window('analysis');
-  $('#a-pre').textContent = now.text || '—';
-  if(now.json?.ok){ fillAnalysis('a', now.json); }
 
-  // 2) коридор
-  const entry = await api.window('corridor');
-  $('#e-pre').textContent = entry.text || '—';
-  if(entry.json?.ok){ fillAnalysis('e', entry.json); }
-
-  // 3) строгие записи
-  const s = await api.strict();
-  $('#s-pre').textContent = s.text || '—';
-
-  // 4) зонд
-  const p = await api.probe();
-  if(p.ok){ $('#oklamp').style.background = 'var(--green)'; }
-  else    { $('#oklamp').style.background = 'var(--red)'; }
-}
-
-$('#btnNow').addEventListener('click', loadAll);
-$('#btnCorridor').addEventListener('click', async ()=>{
-  const entry = await api.window('corridor');
-  $('#e-pre').textContent = entry.text || '—';
-  if(entry.json?.ok){ fillAnalysis('e', entry.json); }
-});
-
-// автообновление лёгкое: каждые 60 сек подтягиваем только «текущий анализ»
-setInterval(async ()=>{
-  const now = await api.window('analysis');
-  if(now.json?.ok){
-    fillAnalysis('a', now.json);
-    $('#a-pre').textContent = now.text || '—';
+  function log(line, cls=''){
+    const el = $('#log');
+    const ts = new Date().toISOString().replace('T',' ').replace('Z','Z');
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = `[${ts}] ${line}`;
+    el.prepend(div);
   }
-}, 60000);
 
-// первый рендер
-loadAll();
+  async function api(url, params){
+    const qs = new URLSearchParams(params).toString();
+    const full = `${url}?${qs}`;
+    const t0 = performance.now();
+    try{
+      const r = await fetch(full, {cache:'no-store'});
+      const text = await r.text();
+      const ms = Math.round(performance.now()-t0);
+      let data;
+      try{ data = JSON.parse(text); }catch(e){
+        log(`ERR ${r.status} ${url} — bad_json`, 'err');
+        return {ok:false, error:'bad_json', status:r.status, raw:text};
+      }
+      log(`${r.status} ${full} • ${ms} ms`, r.ok?'ok':'err');
+      return data;
+    }catch(e){
+      log(`EXC ${url} — ${String(e)}`, 'err');
+      return {ok:false, error:String(e)};
+    }
+  }
+
+  function setKPIs(prefix, a){
+    const safe = (v)=> (v===null||v===undefined||v==='') ? '—' : v;
+    $(`#${prefix}-symbol`).textContent = safe(a?.symbol);
+    $(`#${prefix}-regime`).textContent = safe(a?.regime);
+    $(`#${prefix}-bias`).textContent = safe(a?.bias);
+    $(`#${prefix}-conf`).textContent = safe(a?.confidence);
+    $(`#${prefix}-price`).textContent = safe(a?.price);
+    $(`#${prefix}-bar`).textContent = safe(a?.t_utc ?? a?.bar_utc ?? '—');
+  }
+
+  function renderPlaybook(placeId, playbook){
+    const box = document.getElementById(placeId);
+    box.innerHTML = '';
+    if(!Array.isArray(playbook) || playbook.length===0){
+      box.innerHTML = '<div class="muted">нет сценариев</div>';
+      return;
+    }
+    for(const p of playbook){
+      const el = document.createElement('div');
+      el.className = 'pb';
+      const conf = (p.confidence!=null)? `${p.confidence}`:'—';
+      el.innerHTML = `
+        <div class="hdr">
+          <div class="dir ${p.dir==='short'?'short':'long'}">${p.dir||'—'}</div>
+          <div class="badge">conf: ${conf}</div>
+        </div>
+        <div><b>setup:</b> ${p.setup||'—'}</div>
+        <div><b>entry:</b> ${p.entry||'—'}</div>
+        <div><b>invalidation:</b> ${p.invalidation||'—'}</div>
+        <div><b>tp1:</b> ${p.tp1||'—'} &nbsp; <b>tp2:</b> ${p.tp2||'—'}</div>
+        ${Array.isArray(p.why) && p.why.length ? `<div class="muted">почему:</div><ul class="list">${p.why.map(w=>`<li>${w}</li>`).join('')}</ul>`:''}
+      `;
+      box.appendChild(el);
+    }
+  }
+
+  function showAI(prefix, ai){
+    const wrap = document.getElementById(`ai-${prefix}`);
+    if(ai && (ai.notes || (Array.isArray(ai.playbook) && ai.playbook.length))){
+      wrap.style.display = '';
+      document.getElementById(`${prefix}-notes`).textContent = ai.notes || '';
+      renderPlaybook(`${prefix}-playbook`, ai.playbook || []);
+    }else{
+      wrap.style.display = 'none';
+      document.getElementById(`${prefix}-notes`).textContent = '';
+      document.getElementById(`${prefix}-playbook`).innerHTML='';
+    }
+  }
+
+  // ---- действия -------------------------------------------------------------
+  async function loadNow(){
+    const sym = $('#sym').value.trim();
+    const tf  = $('#tf').value;
+    $('#status').textContent = 'загружаю…';
+    const data = await api('/api/hud_ai.php', {kind:'analysis', sym, tf});
+    $('#json-now').textContent = JSON.stringify(data, null, 2);
+    if(data && data.analysis){
+      setKPIs('now', data.analysis);
+      showAI('now', data.ai);
+    }
+    $('#status').textContent = data && data.ok ? 'OK' : 'ERR';
+    return data;
+  }
+
+  async function loadEdge(){
+    const sym = $('#sym').value.trim();
+    const tf  = $('#tf').value;
+    $('#status').textContent = 'загружаю…';
+    const data = await api('/api/hud_ai.php', {kind:'corridor', sym, tf});
+    $('#json-edge').textContent = JSON.stringify(data, null, 2);
+    if(data && data.analysis){
+      setKPIs('edge', data.analysis);
+      showAI('edge', data.ai);
+    }
+    $('#status').textContent = data && data.ok ? 'OK' : 'ERR';
+    return data;
+  }
+
+  async function loadRaw(limit=3){
+    const sym = $('#sym').value.trim();
+    const tf  = $('#tf').value;
+    const data = await api('/api/hud_api_strict.php', {sym, tf, limit});
+    $('#raw').textContent = JSON.stringify(data, null, 2);
+    $('#raw-src').textContent = 'Источник: /api/hud_api_strict.php';
+    return data;
+  }
+
+  // кнопки
+  $('#btnNow').onclick  = () => loadNow();
+  $('#btnEdge').onclick = () => loadEdge();
+  $('#btnRaw').onclick  = () => loadRaw(3);
+
+  // авто‑обновление
+  let timer=null;
+  $('#auto').addEventListener('change', ()=>{
+    if($('#auto').checked){
+      timer = setInterval(()=>{ loadNow(); loadEdge(); }, 30_000);
+    }else if(timer){ clearInterval(timer); timer=null; }
+  });
+
+  // первый запуск
+  (async ()=>{
+    await loadNow();
+    await loadEdge();
+    await loadRaw(3);
+  })();
 </script>
 </body>
 </html>
