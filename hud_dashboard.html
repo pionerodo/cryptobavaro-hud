@@ -1,194 +1,188 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
   <title>HUD Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body {
-      background-color: #111;
-      color: #ddd;
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 20px;
-    }
-    h1 {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-    .controls {
-      display: flex;
-      justify-content: center;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    select, input, button {
-      padding: 6px 10px;
-      border-radius: 4px;
-      border: none;
-    }
-    button {
-      background-color: #007bff;
-      color: white;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 15px;
-    }
-    .card {
-      background: #1c1c1c;
-      padding: 15px;
-      border-radius: 10px;
-      box-shadow: 0 0 5px #000;
-    }
-    .ok {
-      color: #4caf50;
-      font-weight: bold;
-    }
-    pre {
-      background: #000;
-      color: #0f0;
-      padding: 10px;
-      border-radius: 6px;
-      overflow-x: auto;
-    }
-    .playbook {
-      margin-top: 10px;
-    }
-    .scenario {
-      background: #222;
-      border-left: 4px solid #007bff;
-      margin-bottom: 10px;
-      padding: 8px;
-      border-radius: 6px;
-    }
-    .scenario strong {
-      color: #ffa500;
-    }
-    .footer {
-      margin-top: 20px;
-      text-align: center;
-      font-size: 12px;
-      color: #666;
-    }
+    :root { --bg:#0e0f12; --panel:#191b22; --text:#d7e0ea; --muted:#9aa7b2; --ok:#47d16a; --err:#ff6666; --accent:#4ea3ff; }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;}
+    .wrap{max-width:1320px;margin:20px auto;padding:0 16px;}
+    h1{margin:0 0 16px 0;font-weight:700}
+    .top{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    .pill{padding:6px 10px;border-radius:999px;background:#222632;color:var(--muted);font-weight:600}
+    .pill.ok{background:#15301f;color:var(--ok)}
+    .pill.err{background:#301b1b;color:var(--err)}
+    select,button{background:#12151d;color:var(--text);border:1px solid #303744;border-radius:8px;padding:8px 10px}
+    button{cursor:pointer}
+    button.primary{background:#0e3a6d;border-color:#134a8a;color:#d9ecff}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .panel{background:var(--panel);border:1px solid #2a2f39;border-radius:14px;padding:12px;min-height:120px}
+    .panel h3{margin:0 0 10px;font-size:16px}
+    pre{margin:0;background:#0a0c10;border:1px solid #2a2f39;border-radius:10px;padding:10px;overflow:auto;max-height:60vh;color:#93ff93}
+    .row{display:flex;gap:10px;align-items:center}
+    .hint{color:var(--muted);font-size:12px}
+    .log{color:#9eff9e;white-space:pre-wrap}
+    a{color:var(--accent);text-decoration:none}
   </style>
 </head>
 <body>
-  <h1>HUD Dashboard</h1>
-
-  <div class="controls">
-    <label>Пара: <input type="text" id="symbol" value="BINANCE:BTCUSDT"></label>
-    <label>TF:
+  <div class="wrap">
+    <div class="top">
+      <h1 style="margin-right:auto">HUD Dashboard</h1>
+      <span class="hint">Пара:</span>
+      <select id="sym">
+        <option>BINANCE:BTCUSDT</option>
+        <option>BINANCE:ETHUSDT</option>
+      </select>
+      <span class="hint">TF:</span>
       <select id="tf">
         <option value="1">1m</option>
         <option value="5" selected>5m</option>
         <option value="15">15m</option>
-        <option value="60">1h</option>
+        <option value="60">60m</option>
       </select>
-    </label>
-    <button onclick="getAnalysis()">Получить анализ</button>
-    <button onclick="getSignal()">Проверить «коридор сделки»</button>
-    <span id="status" class="ok">OK</span>
-  </div>
+      <button id="btnNow" class="primary">Получить анализ</button>
+      <button id="btnEntry">Проверить «коридор сделки»</button>
+      <span id="health" class="pill">…</span>
+    </div>
 
-  <div class="grid">
-    <div class="card">
-      <h3>Текущий анализ</h3>
-      <div id="analysis"></div>
-    </div>
-    <div class="card">
-      <h3>Сигнал входа (коридор)</h3>
-      <div id="signal"></div>
-    </div>
-    <div class="card">
-      <h3>Последние записи (строго UTC)</h3>
-      <pre id="strict"></pre>
-    </div>
-    <div class="card">
-      <h3>Диагностика запросов</h3>
-      <pre id="logs"></pre>
-    </div>
-  </div>
+    <div class="grid">
+      <div class="panel">
+        <div class="row" style="justify-content:space-between">
+          <h3>Текущий анализ</h3>
+          <span class="hint">Источник: <code>/api/hud_analyze.php</code></span>
+        </div>
+        <pre id="outNow">—</pre>
+      </div>
 
-  <div class="footer">
-    Источник данных: API HUD (cryptobavaro.online/api/*)
+      <div class="panel">
+        <div class="row" style="justify-content:space-between">
+          <h3>Сигнал входа (коридор)</h3>
+          <span class="hint">Источник: <code>/api/hud_ai.php?mode=entry</code></span>
+        </div>
+        <pre id="outEntry">—</pre>
+      </div>
+
+      <div class="panel" style="grid-column:1 / span 2">
+        <div class="row" style="justify-content:space-between">
+          <h3>Последние записи (строго UTC)</h3>
+          <div class="row">
+            <button id="btnStrict">Показать 3</button>
+            <span class="hint">Источник: <code>/api/hud_api_strict.php</code></span>
+          </div>
+        </div>
+        <pre id="outStrict">—</pre>
+      </div>
+
+      <div class="panel" style="grid-column:1 / span 2">
+        <h3>Диагностика запросов</h3>
+        <pre id="diag" class="log"></pre>
+      </div>
+    </div>
+
+    <p class="hint" style="margin-top:14px">Источник данных: API HUD (<code>/api/*</code>)</p>
   </div>
 
   <script>
+    // ===== helpers =====
+    const $ = s => document.querySelector(s);
+    const diag = msg => {
+      const t = new Date().toISOString().replace('T',' ').replace('Z','Z');
+      $('#diag').textContent = `[${t}] ${msg}\n` + $('#diag').textContent;
+    };
+    const show = (el, data) => {
+      if (typeof data === 'string') { el.textContent = data; return; }
+      el.textContent = JSON.stringify(data, null, 2);
+    };
+    const health = (ok, tip='') => {
+      const h = $('#health');
+      h.classList.remove('ok','err');
+      if (ok) { h.classList.add('ok'); h.textContent = 'OK'; h.title=''; }
+      else { h.classList.add('err'); h.textContent='ERR'; h.title = tip || 'Ошибка запроса'; }
+    };
+
     async function fetchJSON(url) {
+      diag(`GET ${url}`);
       try {
-        const r = await fetch(url);
-        return await r.json();
-      } catch (e) {
-        return { ok: false, error: e.toString() };
-      }
-    }
-
-    async function getAnalysis() {
-      const sym = document.getElementById("symbol").value;
-      const tf = document.getElementById("tf").value;
-      const url = `/api/hud_ai.php?mode=now&sym=${sym}&tf=${tf}`;
-      const data = await fetchJSON(url);
-      renderAnalysis(data, "analysis");
-      logRequest(url);
-    }
-
-    async function getSignal() {
-      const sym = document.getElementById("symbol").value;
-      const tf = document.getElementById("tf").value;
-      const url = `/api/hud_ai.php?mode=entry&sym=${sym}&tf=${tf}`;
-      const data = await fetchJSON(url);
-      renderAnalysis(data, "signal");
-      logRequest(url);
-    }
-
-    async function autoUpdate() {
-      getAnalysis();
-      getSignal();
-      const sym = document.getElementById("symbol").value;
-      const tf = document.getElementById("tf").value;
-      const strict = await fetchJSON(`/api/hud_api_strict.php?sym=${sym}&tf=${tf}&limit=3`);
-      document.getElementById("strict").textContent = JSON.stringify(strict, null, 2);
-    }
-
-    function renderAnalysis(data, id) {
-      const container = document.getElementById(id);
-      if (!data || !data.ok) {
-        container.innerHTML = `<pre>Ошибка: ${data.error || "Нет данных"}</pre>`;
-        return;
-      }
-      const notes = data.ai?.notes || "—";
-      let html = `<p>${notes}</p>`;
-      if (data.ai?.playbook) {
-        html += `<div class="playbook">`;
-        data.ai.playbook.forEach((sc, i) => {
-          html += `
-            <div class="scenario">
-              <strong>Сценарий ${i + 1} (${sc.dir.toUpperCase()})</strong><br>
-              Сетап: ${sc.setup}<br>
-              Вход: ${sc.entry}<br>
-              Инвалидация: ${sc.invalidation}<br>
-              TP1: ${sc.tp1}, TP2: ${sc.tp2}<br>
-              Уверенность: ${sc.confidence}%
-            </div>`;
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          cache: 'no-store',
+          credentials: 'same-origin',
         });
-        html += `</div>`;
+        const text = await res.text();
+        // пробуем распарсить
+        try {
+          const json = JSON.parse(text);
+          return { ok: true, status: res.status, json, text };
+        } catch (e) {
+          // вернулся не‑JSON → покажем ответ как есть
+          return { ok: false, status: res.status, error: 'Not JSON', text };
+        }
+      } catch (e) {
+        return { ok: false, error: e.message };
       }
-      container.innerHTML = html;
     }
 
-    function logRequest(url) {
-      const logs = document.getElementById("logs");
-      const ts = new Date().toISOString();
-      logs.textContent = `[${ts}] GET ${url}\n` + logs.textContent;
+    function params() {
+      return {
+        sym: encodeURIComponent($('#sym').value.trim()),
+        t: $('#tf').value.trim() // только число минут
+      };
     }
 
-    setInterval(autoUpdate, 60000); // авто-обновление каждую минуту
+    // ===== actions =====
+    async function doNow() {
+      const { sym, t } = params();
+      const url = `/api/hud_analyze.php?sym=${sym}&t=${t}`;
+      const r = await fetchJSON(url);
+      if (r.ok && r.json && r.json.ok !== false) {
+        show($('#outNow'), r.json);
+        health(true);
+      } else {
+        const detail = r.json?.detail || r.error || '';
+        show($('#outNow'), r.text || JSON.stringify(r.json || { error: detail }, null, 2));
+        health(false, detail);
+      }
+    }
+
+    async function doEntry() {
+      const { sym, t } = params();
+      const url = `/api/hud_ai.php?mode=entry&sym=${sym}&t=${t}`;
+      const r = await fetchJSON(url);
+      if (r.ok && r.json && r.json.ok !== false) {
+        show($('#outEntry'), r.json);
+        health(true);
+      } else {
+        const detail = r.json?.detail || r.error || '';
+        show($('#outEntry'), r.text || JSON.stringify(r.json || { error: detail }, null, 2));
+        health(false, detail);
+      }
+    }
+
+    async function doStrict() {
+      const { sym, t } = params();
+      const url = `/api/hud_api_strict.php?sym=${sym}&t=${t}&limit=3`;
+      const r = await fetchJSON(url);
+      if (r.ok && r.json && r.json.ok !== false) {
+        show($('#outStrict'), r.json);
+        health(true);
+      } else {
+        const detail = r.json?.detail || r.error || '';
+        show($('#outStrict'), r.text || JSON.stringify(r.json || { error: detail }, null, 2));
+        health(false, detail);
+      }
+    }
+
+    // ===== bindings =====
+    $('#btnNow').addEventListener('click', doNow);
+    $('#btnEntry').addEventListener('click', doEntry);
+    $('#btnStrict').addEventListener('click', doStrict);
+
+    // первый рендер
+    health(true, '');
+    // можно включить авто‑обновление анализа (разкомментируй при необходимости)
+    // setInterval(doNow, 60_000);
   </script>
 </body>
 </html>
