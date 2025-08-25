@@ -1,189 +1,223 @@
 <?php
 /**
  * HUD AI endpoint
- * - kind=analysis | corridor  (default: analysis)
- * - sym=BINANCE:BTCUSDT
- * - tf=5
- * - limit=3  (сколько последних строк контекста из cbav_hud_analyses подтянуть)
+ * GET params:
+ *   - mode: now | entry   (default: now)
+ *   - sym:  tradingview symbol like BINANCE:BTCUSDT (default: BINANCE:BTCUSDT)
+ *   - tf:   timeframe minutes (int, default: 5)
  *
- * Ответ: JSON:
- * {
- *   ok: true,
- *   meta: {...},
- *   analysis: {...},     // краткая сводка по последней строке БД (для отладки/отображения)
- *   ai: {
- *     notes: "…",
- *     playbook: [ ... ],
- *     raw: "{...JSON от модели...}"
- *   },
- *   debug: { rows: [...] } // опционально
- * }
+ * Response:
+ *   { ok, meta, analysis, ai, debug? }
  */
 
 header('Content-Type: application/json; charset=utf-8');
+mb_internal_encoding('UTF-8');
+
+$startedAt = microtime(true);
 
 try {
-    // ── подключение зависимостей
     require_once __DIR__ . '/db.php';
-    require_once __DIR__ . '/api_ai_client.php';
-
-    // ── входные параметры
-    $symbol = isset($_GET['sym']) ? trim($_GET['sym']) : 'BINANCE:BTCUSDT';
-    $tf     = isset($_GET['tf'])  ? (int)$_GET['tf'] : 5;
-    if ($tf <= 0) $tf = 5;
-
-    $limit  = isset($_GET['limit']) ? max(1, min(10, (int)$_GET['limit'])) : 3;
-    $kind   = isset($_GET['kind']) ? strtolower(trim($_GET['kind'])) : 'analysis';
-    if (!in_array($kind, ['analysis','corridor'], true)) {
-        $kind = 'analysis';
-    }
-
-    // ── читаем свежие строки контекста из БД (cbav_hud_analyses)
-    $pdo = db(); // PDO
-    $sql = "SELECT id, snapshot_id, symbol, tf, ver, ts, FROM_UNIXTIME(ts/1000) t_utc,
-                   price, regime, bias, confidence, atr, result_json, analyzed_at
-            FROM cbav_hud_analyses
-            WHERE symbol = :symbol AND tf = :tf
-            ORDER BY ts DESC
-            LIMIT :lim";
-    $stmt = $pdo->prepare($sql);
-    $stmt->bindValue(':symbol', $symbol);
-    $stmt->bindValue(':tf', $tf, PDO::PARAM_INT);
-    $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    if (!$rows) {
-        echo json_encode([
-            'ok'    => false,
-            'error' => 'no_data',
-            'detail'=> 'В таблице cbav_hud_analyses нет записей под заданные sym/tf.'
-        ], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
-    // ── последняя запись как "текущая сводка" для UI
-    $last = $rows[0];
-    $meta = [
-        'symbol'    => $symbol,
-        'tf'        => $tf,
-        'context_tf'=> [1,3,5,15,60],
-        'model'     => 'gpt-4o-mini-2024-07-18',
-    ];
-    $analysis = [
-        'regime'     => (string)($last['regime'] ?? ''),
-        'bias'       => (string)($last['bias'] ?? ''),
-        'confidence' => is_null($last['confidence']) ? null : (int)$last['confidence'],
-        'price'      => is_null($last['price']) ? null : (float)$last['price'],
-        'atr'        => is_null($last['atr']) ? null : (float)$last['atr'],
-    ];
-
-    // ── готовим компактный контекст для промта
-    // (оставляем только понятные модели поля)
-    $compact = array_map(function($r){
-        return [
-            't_utc'      => $r['t_utc'],
-            'ts'         => (int)$r['ts'],
-            'price'      => is_null($r['price']) ? null : (float)$r['price'],
-            'atr'        => is_null($r['atr']) ? null : (float)$r['atr'],
-            'regime'     => $r['regime'],
-            'bias'       => $r['bias'],
-            'confidence' => is_null($r['confidence']) ? null : (int)$r['confidence'],
-            'ver'        => $r['ver'],
-        ];
-    }, $rows);
-
-    $contextJson = json_encode([
-        'symbol' => $symbol,
-        'tf'     => $tf,
-        'rows'   => $compact
-    ], JSON_UNESCAPED_UNICODE);
-
-    // ── system-подсказка (общая для обоих режимов)
-    $system = [
-        'role'    => 'system',
-        'content' =>
-            "Ты — русскоязычный трейдинг-аналитик.\n".
-            "Всегда отвечай СТРОГО в формате JSON и ничего больше (без пояснений, без преамбул).\n".
-            "Никаких эмодзи, никаких лишних фраз. Коротко, по делу, деловой тон.\n".
-            "Если входные данные недостаточны — всё равно дай максимально консервативный и безопасный план."
-    ];
-
-    // ── промт пользователя (ветвление: analysis / corridor)
-    if ($kind === 'analysis') {
-        $userPrompt =
-            "Контекст (символ/ТФ и последние записи анализа):\n".
-            $contextJson."\n\n".
-            "Задача:\n".
-            "1) Сформируй короткие заметки о рынке (один абзац, ~400–450 символов максимум).\n".
-            "2) Сформируй плейбук (до 4 сценариев), каждый — объект:\n".
-            "   dir: \"long\"|\"short\",\n".
-            "   setup: коротко (например: «отбой от aVWAP», «пробой диапазона», «ретест уровня»),\n".
-            "   entry: зона входа/условие,\n".
-            "   invalidation: где идея ломается (стоп/условие),\n".
-            "   tp1: реалистичная цель-1,\n".
-            "   tp2: цель-2,\n".
-            "   confidence: 0..100,\n".
-            "   why: 3–5 очень коротких аргументов через «;».\n\n".
-            "Важное:\n".
-            "- Работаем скальпингом **5m** (контекст 1m/3m/5m/15m/60m).\n".
-            "- Не выдумывай уровни — опирайся на присланные box_top/box_bot, ob_bear/ob_bull, aVWAP, дневной VWAP, если они есть в данных.\n".
-            "- Если сигналов мало — дай безопасный, консервативный сценарий.\n".
-            "- Всё строго на русском.\n\n".
-            "Ответь строго JSON: {\"notes\":\"…\",\"playbook\":[…]}";
-    } else { // corridor
-        $userPrompt =
-            "Контекст (символ/ТФ и последние записи анализа):\n".
-            $contextJson."\n\n".
-            "Задача («Сигнал входа / коридор сделки»):\n".
-            "- Дай короткие заметки (один абзац, до 250–300 символов) о текущем моменте.\n".
-            "- Сформируй строго 1–2 максимально практичных сценария для работы в коридоре/диапазоне, каждый — объект:\n".
-            "   dir: \"long\"|\"short\",\n".
-            "   setup: («ложный пробой коридора», «внутри-бар у границы», «ретест mid/EVWAP» и т.п.),\n".
-            "   entry: точка/зона входа (условно и кратко),\n".
-            "   invalidation: где идея ломается (стоп/условие),\n".
-            "   tp1: близкая цель,\n".
-            "   tp2: цель-2 (если уместно),\n".
-            "   confidence: 0..100,\n".
-            "   why: 3–5 очень коротких аргументов через «;» (например: «сжатая волатильность; тест границы; сигнал объёма»).\n\n".
-            "Важное:\n".
-            "- Работаем скальпингом **5m** (контекст 1m/3m/5m/15m/60m).\n".
-            "- Не выдумывай уровни — опирайся на присланные box_top/box_bot, ob_bear/ob_bull, aVWAP, дневной VWAP, если они есть.\n".
-            "- Цель — аккуратная игра *внутри диапазона* (консервативные входы, чёткие условия).\n".
-            "- Всё строго на русском.\n\n".
-            "Ответь строго JSON: {\"notes\":\"…\",\"playbook\":[…]}";
-    }
-
-    // ── вызов модели
-    $messages = [
-        $system,
-        ['role' => 'user', 'content' => $userPrompt]
-    ];
-    $aiJson = ai_interpret_json($messages); // возвращает уже декодированный PHP-объект/массив или бросает исключение
-
-    // аккуратно подготовим вывод
-    $out = [
-        'ok'   => true,
-        'meta' => $meta,
-        'analysis' => $analysis,
-        'ai' => [
-            'notes'    => (string)($aiJson['notes'] ?? ''),
-            'playbook' => is_array($aiJson['playbook'] ?? null) ? $aiJson['playbook'] : [],
-            // сырой текст для дебага
-            'raw'      => json_encode($aiJson, JSON_UNESCAPED_UNICODE)
-        ],
-        'debug' => [
-            'rows' => $rows
-        ]
-    ];
-
-    echo json_encode($out, JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT);
-
 } catch (Throwable $e) {
-    http_response_code(500);
-    echo json_encode([
-        'ok'     => false,
-        'error'  => 'exception',
-        'detail' => $e->getMessage()
-    ], JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT);
+    echo json_encode(['ok' => false, 'error' => 'db_include', 'detail' => $e->getMessage()]);
+    exit;
+}
+
+try {
+    require_once __DIR__ . '/api_ai_client.php'; // должен содержать ai_interpret_json()
+} catch (Throwable $e) {
+    // Не фаталим — ниже будет фолбэк без AI.
+}
+
+/* ---------- helpers ---------- */
+
+function p($key, $default = null) {
+    return isset($_GET[$key]) ? trim((string)$_GET[$key]) : $default;
+}
+function jok($data) {
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+function jerr($msg, $detail = '') {
+    jok(['ok' => false, 'error' => $msg, 'detail' => $detail]);
+}
+
+/* ---------- input ---------- */
+
+$mode = strtolower(p('mode', 'now'));               // now | entry
+$symbol = p('sym', 'BINANCE:BTCUSDT');              // как в БД
+$tf = (int)p('tf', 5);
+if ($tf <= 0) $tf = 5;
+
+/* ---------- fetch last rows from analyses ---------- */
+
+try {
+    // Последние 3 записи анализа для контекста + явный последний для текущего среза.
+    $rows = db_all(
+        "SELECT id, snapshot_id, symbol, tf, ver, ts, FROM_UNIXTIME(ts/1000) t_utc,
+                price, regime, bias, confidence, atr, result_json, analyzed_at
+         FROM cbav_hud_analyses
+         WHERE symbol = ? AND tf = ?
+         ORDER BY ts DESC
+         LIMIT 3",
+        [$symbol, $tf]
+    );
+
+    $last = $rows[0] ?? null;
+    if (!$last) {
+        jerr('no_data', 'cbav_hud_analyses is empty for given sym/tf');
+    }
+} catch (Throwable $e) {
+    jerr('db', $e->getMessage());
+}
+
+/* ---------- prepare meta/analysis ---------- */
+
+$meta = [
+    'symbol'     => $symbol,
+    'tf'         => $tf,
+    'context_tf' => [1, 3, 5, 15, 60],
+    'model'      => 'gpt-4o-mini-2024-07-18',
+    'elapsed_ms' => null,
+];
+
+$analysis = [
+    'regime'     => $last['regime'] ?? null,
+    'bias'       => $last['bias'] ?? null,
+    'confidence' => isset($last['confidence']) ? (int)$last['confidence'] : null,
+    'price'      => isset($last['price']) ? (float)$last['price'] : null,
+    'atr'        => isset($last['atr']) ? (float)$last['atr'] : null,
+];
+
+/* ---------- build compact raw context for the prompt ---------- */
+
+$hist = [];
+foreach ($rows as $r) {
+    $hist[] = [
+        't_utc'      => $r['t_utc'],
+        'price'      => $r['price'],
+        'regime'     => $r['regime'],
+        'bias'       => $r['bias'],
+        'confidence' => (int)$r['confidence'],
+        'atr'        => $r['atr'],
+    ];
+}
+
+/* ---------- prompt per our agreed spec ---------- */
+
+$prompt_notes_and_playbook = <<<TXT
+Ты — русскоязычный трейдинг-аналитик. Задача: из коротких рыночных признаков сделать
+1) краткие заметки (один абзац, максимум ~400–450 символов)
+2) плейбук (до 4 сценариев) — массив объектов:
+   dir: "long"|"short",
+   setup: коротко («отбой от aVWAP», «пробой диапазона», «ретест уровня»),
+   entry: зона входа/условие,
+   invalidation: где идея ломается (стоп/условие),
+   tp1: реалистичная цель-1,
+   tp2: цель-2,
+   confidence: 0..100,
+   why: 3–5 очень коротких аргументов через «;».
+Важное:
+- работаем на 5m (+контекст 1m/3m/15m/60m), тикер — крипто фьючерс.
+- не выдумывай уровни — опирайся на присланные box_top/box_bot, ob_bear/ob_bull, aVWAP, дневной VWAP (если они есть в данных).
+- если сигналов мало — дай безопасный, консервативный сценарий.
+- тон — деловой, без эмоций и без эмодзи, всё на русском.
+Отвечай строго JSON: {"notes":"…","playbook":[…]}
+Данные (свежие сверху):
+TXT;
+
+$raw_for_llm = [
+    'symbol'  => $symbol,
+    'tf'      => $tf,
+    'latest'  => $analysis,
+    'history' => $hist,
+    // при желании сюда можно добавить уровни ob_bull/ob_bear/box_top/box_bot и т.п.
+];
+
+$ai_block = null;
+$raw_dump = null;
+
+/* ---------- call LLM if available ---------- */
+
+try {
+    if (function_exists('ai_interpret_json')) {
+        // Небольшая страховка: превращаем массив в компактный текст для промпта.
+        $data_txt = json_encode($raw_for_llm, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $prompt = $prompt_notes_and_playbook . "\n" . $data_txt;
+
+        // Схему оставим свободной: функция у вас уже валидирует JSON-ответ модели.
+        $resp = ai_interpret_json($prompt, [
+            'force_json' => true,
+            'max_tokens' => 500,
+            'temperature'=> 0.3,
+        ]);
+
+        // ожидаем {"notes":"…","playbook":[…]}
+        if (isset($resp['notes']) && isset($resp['playbook'])) {
+            $ai_block = $resp;
+            $raw_dump = json_encode($resp, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            // не упадём — вернём «пустой» результат
+            $ai_block = [
+                'notes'    => 'Сигналы слабые; сохраняем осторожность. Дождаться ясного импульса или ретеста уровня.',
+                'playbook' => [],
+            ];
+            $raw_dump = json_encode($ai_block, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+    } else {
+        // Фолбэк: базовый, без вызова модели
+        $dir = ($analysis['bias'] === 'short') ? 'short' : 'long';
+        $ai_block = [
+            'notes' => 'Краткая заметка по рынку на основе последних признаков анализа.',
+            'playbook' => [[
+                'dir'         => $dir,
+                'setup'       => 'пробой диапазона',
+                'entry'       => 'при пробое локальной поддержки',
+                'invalidation'=> 'возврат выше пробитого уровня',
+                'tp1'         => 'первая цель',
+                'tp2'         => 'вторая цель',
+                'confidence'  => max(0, min(100, (int)$analysis['confidence'])),
+                'why'         => ['режим: '.$analysis['regime'], 'bias: '.$analysis['bias'], 'осторожно при низкой уверенности'],
+            ]],
+        ];
+        $raw_dump = json_encode($ai_block, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+} catch (Throwable $e) {
+    // Не валим весь эндпоинт
+    $ai_block = [
+        'notes'    => 'Не удалось получить расширенный анализ — используем базовый сценарий.',
+        'playbook' => [],
+    ];
+    $raw_dump = json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
+/* ---------- unify response ---------- */
+
+$meta['elapsed_ms'] = (int)round((microtime(true) - $startedAt) * 1000);
+
+$response = [
+    'ok'      => true,
+    'meta'    => $meta,
+    'analysis'=> $analysis,
+    'ai'      => [
+        'notes'    => $ai_block['notes'] ?? '',
+        'playbook' => $ai_block['playbook'] ?? [],
+        'raw'      => $raw_dump,
+    ],
+];
+
+// Для режима «entry» оставим тот же формат (дашборду удобнее единый контракт)
+if ($mode === 'entry') {
+    $response['meta']['mode'] = 'entry';
+}
+
+// Небольшой блок для дебага (удобно на dashboard)
+$response['debug'] = [
+    'rows' => $rows,
+];
+
+jok($response);
+
+/* ---------- global catch ---------- */
+} catch (Throwable $e) {
+    jerr('exception', $e->getMessage());
 }
