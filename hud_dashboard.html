@@ -96,7 +96,6 @@
       $('#diag').prepend(el);
     };
 
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
     const tfNum = (tfStr) => parseInt(tfStr.replace(/\D/g,''),10) || 5;
 
     async function fetchJSON(url) {
@@ -119,14 +118,24 @@
       }
     }
 
+    // 🔧 для /analyze.php?mode=probe — читаем как ТЕКСТ, не JSON
+    async function fetchTEXT(url){
+      const t0 = performance.now();
+      const res = await fetch(url, {cache:'no-store'});
+      const txt = await res.text();
+      const ms = Math.round(performance.now() - t0);
+      diag(`GET ${url}  • ${ms} ms`);
+      return txt;
+    }
+
     function pretty(target, data){
       $(target).textContent = JSON.stringify(data, null, 2);
     }
 
     function buildAiUrl(kind, sym, tf){
-      // основной вариант (новый): kind=analysis|corridor
+      // новый контракт
       const urlKind = `/api/hud_ai.php?kind=${encodeURIComponent(kind)}&sym=${encodeURIComponent(sym)}&tf=${tf}`;
-      // fallback (старый): mode=now|entry
+      // обратная совместимость
       const mode = (kind === 'analysis') ? 'now' : 'entry';
       const urlMode = `/api/hud_ai.php?mode=${mode}&sym=${encodeURIComponent(sym)}&tf=${tf}`;
       return {urlKind, urlMode};
@@ -138,12 +147,10 @@
 
       const {urlKind, urlMode} = buildAiUrl(kind, sym, tf);
 
-      // 1) пробуем новый контракт
       try{
         const j = await fetchJSON(urlKind);
         return j;
       }catch(e){
-        // 2) если сервер ещё на старом контракте — попробуем mode=…
         diag(`fallback → ${urlMode}`);
         return await fetchJSON(urlMode);
       }
@@ -178,27 +185,21 @@
     }
 
     // UI
-    $('#btnNow').addEventListener('click', async ()=>{
-      try{ await doNow(); }catch{}
-    });
-    $('#btnEntry').addEventListener('click', async ()=>{
-      try{ await doEntry(); }catch{}
-    });
-    $('#tf').addEventListener('change', async ()=>{
-      // при смене ТФ подгружаем свежие блоки
-      try{ await Promise.all([doNow(), doEntry(), loadStrict()]); }catch{}
-    });
+    $('#btnNow').addEventListener('click', async ()=>{ try{ await doNow(); }catch{} });
+    $('#btnEntry').addEventListener('click', async ()=>{ try{ await doEntry(); }catch{} });
+    $('#tf').addEventListener('change', async ()=>{ try{ await Promise.all([doNow(), doEntry(), loadStrict()]); }catch{} });
     $('#sym').addEventListener('keydown', e=>{
       if(e.key==='Enter'){ doNow().catch(()=>{}); loadStrict().catch(()=>{}); }
     });
 
     // Первичная загрузка
     (async ()=>{
-      // «пробный пинг» бэкенда
+      // ✅ пробный пинг: читаем как текст и считаем успехом любой 200 + наличие «alive»
       try{
-        const ping = await fetchJSON('/analyze.php?mode=probe');
-        $('#ping').textContent = 'OK';
-        $('#ping').style.color = 'var(--ok)';
+        const txt = await fetchTEXT('/analyze.php?mode=probe');
+        const ok = /alive/i.test(txt);
+        $('#ping').textContent = ok ? 'OK' : 'ERR';
+        $('#ping').style.color = ok ? 'var(--ok)' : 'var(--err)';
       }catch{
         $('#ping').textContent = 'ERR';
         $('#ping').style.color = 'var(--err)';
