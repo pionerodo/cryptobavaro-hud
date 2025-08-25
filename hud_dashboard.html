@@ -1,205 +1,326 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>HUD Dashboard</title>
-<style>
-  :root{
-    --bg:#0f1115; --card:#151823; --muted:#9aa3b2; --fg:#e9eef8; --accent:#6ee7b7;
-    --danger:#ff6b6b; --warn:#fbbf24; --ok:#22c55e; --line:#23283b; --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  }
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji";}
-  .wrap{max-width:1180px;margin:0 auto;padding:24px}
-  h1{margin:0 0 20px;font-size:24px}
-  .row{display:grid;grid-template-columns:1fr;gap:16px}
-  @media(min-width:980px){ .row{grid-template-columns:1fr 1fr} }
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
-  .card h2{margin:0 0 12px;font-size:16px}
-  .muted{color:var(--muted)}
-  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-  .input, select{background:#0d1018;border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 10px}
-  .btn{border:1px solid var(--line);background:#161a26;color:var(--fg);padding:8px 12px;border-radius:10px;cursor:pointer}
-  .btn:hover{border-color:#2b3150;background:#1b2030}
-  .btn.ok{border-color:#27563f;background:#13261d}
-  .tag{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:#111422}
-  .tag.ok{color:#a7f3d0;border-color:#1f5a44;background:#0e231a}
-  .tag.warn{color:#fde68a;border-color:#6b5211;background:#231a0b}
-  .tag.bad{color:#fecaca;border-color:#6b1a1a;background:#230e0e}
-  .mono{font-family:var(--mono);font-size:12.5px;line-height:1.4;white-space:pre-wrap;word-break:break-word}
-  .json{min-height:220px;max-height:420px;overflow:auto;background:#0d1018;border-radius:10px;border:1px dashed #2b3150;padding:12px}
-  .grid{display:grid;grid-template-columns:1fr;gap:16px}
-  @media(min-width:980px){ .grid{grid-template-columns:1fr 1fr} }
-  .split{display:grid;grid-template-columns:1fr;gap:16px}
-  .foot{margin-top:18px;font-size:12px}
-  .kv{display:flex;flex-wrap:wrap;gap:10px}
-  .kv b{color:#cdd4e3}
-  .small{font-size:12px}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HUD Dashboard</title>
+  <style>
+    :root{
+      --bg:#0b1020; --card:#131a2b; --muted:#9fb3ca; --text:#e6eef7; --good:#4ade80; --bad:#f87171; --accent:#60a5fa;
+      --mono: ui-monospace,SFMono-Regular,Menlo,Monaco,"Liberation Mono","DejaVu Sans Mono","Courier New",monospace;
+      --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","Noto Sans","Liberation Sans",Arial,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
+      --br:14px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; background:var(--bg); color:var(--text); font-family:var(--sans);
+    }
+    .wrap{max-width:1180px; margin:24px auto; padding:0 16px}
+    h1{margin:0 0 18px; font-size:22px; font-weight:700; letter-spacing:.3px}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+    .row-3{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+    @media (max-width:980px){.row,.row-3{grid-template-columns:1fr}}
+    .card{
+      background:var(--card); border:1px solid rgba(255,255,255,.06); border-radius:var(--br);
+      box-shadow:0 6px 24px rgba(0,0,0,.35); overflow:hidden;
+    }
+    .card .hd{
+      display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.07);
+    }
+    .hd h2{margin:0; font-size:14px; color:#cfe3ff; letter-spacing:.4px}
+    .hd .sub{color:var(--muted); font-size:12px}
+    .pad{padding:14px 16px}
+    .ctrls{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+    select, input, button{
+      background:#0f1526; color:var(--text); border:1px solid rgba(255,255,255,.12);
+      border-radius:10px; padding:8px 10px; font:600 13px var(--sans); outline:none;
+    }
+    button{cursor:pointer; transition:.15s transform}
+    button:active{transform:translateY(1px)}
+    .btn{background:#17233d; border-color:#2a3e67}
+    .btn.primary{background:#1a2f55; border-color:#3a5ea7}
+    .btn.ok{background:#112a1b; border-color:#1b4d2c; color:#b6ffcf}
+    .btn.bad{background:#341919; border-color:#6b1e1e; color:#ffb6b6}
+    .status{font:700 11px var(--sans); padding:4px 8px; border-radius:999px}
+    .ok{background:rgba(34,197,94,.15); color:#86efac; border:1px solid rgba(34,197,94,.35)}
+    .err{background:rgba(239,68,68,.12); color:#fecaca; border:1px solid rgba(239,68,68,.32)}
+    .mono{font-family:var(--mono); color:#d7e6ff}
+    .json{white-space:pre; overflow:auto; font-family:var(--mono); line-height:1.35; font-size:12.5px; max-height:460px}
+    .muted{color:var(--muted)}
+    table{width:100%; border-collapse:separate; border-spacing:0; margin-top:10px; font-size:13px}
+    th,td{padding:8px 10px; border-bottom:1px dashed rgba(255,255,255,.06); vertical-align:top}
+    th{color:#cfe3ff; text-align:left; font-weight:700}
+    .tags{display:flex; gap:6px; flex-wrap:wrap}
+    .tag{font:700 11px var(--sans); color:#bfdbfe; background:#0f2244; border:1px solid #274472; padding:4px 8px; border-radius:999px}
+    .flex{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .right{margin-left:auto}
+    .foot{margin-top:8px; color:var(--muted); font-size:12px}
+    .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+    @media (max-width:980px){.grid2{grid-template-columns:1fr}}
+    .small{font-size:12px}
+    .hr{height:1px; background:rgba(255,255,255,.06); margin:8px 0}
+    .diag{font-family:var(--mono); font-size:12px; white-space:pre-wrap; line-height:1.35; max-height:260px; overflow:auto}
+    .link{color:#8ec0ff; text-decoration:none}
+    .kvs{display:flex; gap:12px; align-items:center}
+    .kvs .kv{color:#cfe3ff; background:#0e1930; border:1px solid #283a61; padding:6px 8px; border-radius:8px; font:700 11px var(--mono)}
+  </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>HUD Dashboard</h1>
+  <div class="wrap">
+    <h1>HUD Dashboard</h1>
 
-  <div class="card">
-    <div class="bar">
-      <b class="muted">Пара</b>
-      <input class="input" id="symbol" value="BINANCE:BTCUSDT" style="width:220px">
-      <b class="muted">TF</b>
-      <select id="tf" class="input">
-        <option value="1">1m</option>
-        <option value="3">3m</option>
-        <option value="5" selected>5m</option>
-        <option value="15">15m</option>
-        <option value="60">60m</option>
-      </select>
-      <button class="btn" id="btnNow">Получить анализ</button>
-      <button class="btn" id="btnBox">Проверить «коридор сделки»</button>
-      <span id="badgeTop" class="tag">Готово</span>
+    <!-- Панель управления -->
+    <div class="card" id="ctrl">
+      <div class="hd">
+        <h2>Панель управления</h2>
+        <div class="kvs small">
+          <div class="kv">сервер: <span id="srvStatus" class="muted">—</span></div>
+          <div class="kv">время (UTC): <span id="utcNow" class="muted">—</span></div>
+        </div>
+      </div>
+      <div class="pad ctrls">
+        <label>Пара</label>
+        <select id="sym">
+          <option value="BINANCE:BTCUSDT">BINANCE:BTCUSDT</option>
+        </select>
+        <label>TF</label>
+        <select id="tf">
+          <option value="5" selected>5m</option>
+          <option value="15">15m</option>
+          <option value="60">1h</option>
+        </select>
+
+        <button class="btn primary" id="btnAnalysis">Получить анализ</button>
+        <button class="btn" id="btnCorridor">Проверить «коридор сделки»</button>
+
+        <span class="right small muted">Если API вернёт ошибку — появится красный статус и подробности в «Диагностика запросов».</span>
+      </div>
     </div>
 
-    <div class="grid">
-      <div>
-        <h2>Текущий анализ</h2>
-        <div class="kv small" id="metaNow"></div>
-        <div class="json mono" id="jsonNow">—</div>
+    <!-- Две колонки: текущий анализ и сигнал входа -->
+    <div class="row" style="margin-top:16px">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Текущий анализ</h2>
+            <div class="sub">Источник: /api/hud_ai.php (kind=analysis)</div>
+          </div>
+          <div class="tags">
+            <span id="anOK" class="status">—</span>
+            <button id="anRawBtn" class="btn small">RAW JSON</button>
+          </div>
+        </div>
+        <div class="pad">
+          <div class="kvs small" id="anMeta"></div>
+          <div id="anView"></div>
+          <div id="anRaw" class="json" style="display:none"></div>
+        </div>
       </div>
-      <div>
-        <h2>Сигнал входа (коридор)</h2>
-        <div class="kv small" id="metaBox"></div>
-        <div class="json mono" id="jsonBox">—</div>
+
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Сигнал входа (коридор)</h2>
+            <div class="sub">Источник: /api/hud_ai.php (kind=corridor)</div>
+          </div>
+          <div class="tags">
+            <span id="sgOK" class="status">—</span>
+            <button id="sgRawBtn" class="btn small">RAW JSON</button>
+          </div>
+        </div>
+        <div class="pad">
+          <div class="kvs small" id="sgMeta"></div>
+          <div id="sgView"></div>
+          <div id="sgRaw" class="json" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Нижний ряд: последние записи + диагностика -->
+    <div class="row-3" style="margin-top:16px">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <h2>Последние записи (строго UTC)</h2>
+            <div class="sub">Источник: /api/hud_api_strict.php</div>
+          </div>
+          <span id="stOK" class="status">—</span>
+        </div>
+        <div class="pad">
+          <div class="small muted" id="strictMeta"></div>
+          <div id="strictRaw" class="json"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="hd">
+          <h2>Диагностика запросов</h2>
+          <button id="clrDiag" class="btn small">Очистить</button>
+        </div>
+        <div class="pad">
+          <div id="diag" class="diag"></div>
+          <div class="foot">Здесь видны последние URL и статус запроса.</div>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="row" style="margin-top:16px">
-    <div class="card">
-      <h2>Последние записи (строго UTC)</h2>
-      <div class="kv small" id="metaStrict"></div>
-      <div class="json mono" id="jsonStrict">—</div>
-      <div class="foot muted small">Источник: <code>/api/hud_api_strict.php</code></div>
-    </div>
+  <script>
+    // -------- helpers ----------
+    const $ = sel => document.querySelector(sel);
+    const utcNowEl = $('#utcNow');
+    const srvStatus = $('#srvStatus');
 
-    <div class="card">
-      <h2>Диагностика запросов</h2>
-      <div class="json mono" id="logBox">журнал пуст</div>
-      <div class="foot muted small">Здесь видны последние URL и статусы запроса.</div>
-    </div>
-  </div>
-</div>
-
-<script>
-(function(){
-  const $ = (id)=>document.getElementById(id);
-  const badgeTop = $('badgeTop');
-  const logBox = $('logBox');
-
-  const api = {
-    strict: (sym, tf, limit=3) =>
-      `/api/hud_api_strict.php?sym=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=${limit}`,
-    aiNow: (sym, tf) =>
-      `/api/hud_ai.php?mode=now&sym=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`,
-    aiBox: (sym, tf) =>
-      `/api/hud_ai.php?mode=now&signal=box&sym=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`
-  };
-
-  const pretty = (v)=> {
-    try{ return JSON.stringify(v, null, 2); }catch(e){ return String(v); }
-  };
-
-  function log(line){
-    const ts = new Date().toISOString().replace('T',' ').replace('Z',' UTC');
-    logBox.textContent = `[${ts}] ${line}\n` + logBox.textContent;
-  }
-
-  async function getJSON(url){
-    log(`GET ${url}`);
-    const t0 = performance.now();
-    let res, txt;
-    try{
-      res = await fetch(url, {headers:{'Accept':'application/json'}});
-      txt = await res.text();
-    }catch(e){
-      log(`ERR fetch: ${e.message}`);
-      throw e;
-    }finally{
-      const ms = Math.round(performance.now()-t0);
-      log(`→ ${res ? res.status : '—'} in ${ms} ms`);
+    function fmtUTC(d=new Date()){
+      const z = n => String(n).padStart(2,'0');
+      return `${d.getUTCFullYear()}-${z(d.getUTCMonth()+1)}-${z(d.getUTCDate())} ${z(d.getUTCHours())}:${z(d.getUTCMinutes())}:${z(d.getUTCSeconds())}`;
     }
-    try{ return JSON.parse(txt); }catch(e){ log(`ERR parse JSON`); throw e; }
-  }
+    setInterval(()=>{ utcNowEl.textContent = fmtUTC(); }, 1000);
 
-  function setBadge(ok, msgOk='OK', msgBad='Ошибка'){
-    badgeTop.className = 'tag ' + (ok ? 'ok':'bad');
-    badgeTop.textContent = ok ? msgOk : msgBad;
-  }
-
-  function renderMeta(el, model){
-    const meta = [];
-    if(model?.meta){
-      const m = model.meta;
-      if(m.model) meta.push(`<b>Модель:</b> ${m.model}`);
-      if(m.symbol) meta.push(`<b>Символ/TF:</b> ${m.symbol} / ${m.tf}`);
-      if(m.t_utc)  meta.push(`<b>Снимок:</b> ${m.t_utc}`);
-    }else if(model?.data?.length){
-      const a = model.data[0];
-      if(a.symbol) meta.push(`<b>Символ/TF:</b> ${a.symbol} / ${a.tf}`);
-      if(a.t_utc)  meta.push(`<b>ts:</b> ${a.t_utc}`);
-      if(a.price!=null) meta.push(`<b>price:</b> ${a.price}`);
-      if(a.ver)    meta.push(`<b>ver:</b> ${a.ver}`);
+    function logDiag(line){
+      const el = $('#diag');
+      const stamp = fmtUTC();
+      el.textContent = `[${stamp} UTC] ${line}\n` + el.textContent;
     }
-    el.innerHTML = meta.join(' · ') || '<span class="muted">—</span>';
-  }
+    $('#clrDiag').addEventListener('click', ()=> $('#diag').textContent='');
 
-  async function runStrict(){
-    const sym = $('symbol').value.trim();
-    const tf  = $('tf').value;
-    try{
-      const j = await getJSON(api.strict(sym, tf, 3));
-      $('jsonStrict').textContent = pretty(j);
-      renderMeta($('metaStrict'), j);
-      setBadge(true, 'OK');
-    }catch(e){
-      $('jsonStrict').textContent = String(e);
-      setBadge(false, 'Ошибка');
+    function badge(el, ok){
+      el.className = 'status ' + (ok ? 'ok' : 'err');
+      el.textContent = ok ? 'OK' : 'ERR';
     }
-  }
 
-  async function runNow(){
-    const sym = $('symbol').value.trim();
-    const tf  = $('tf').value;
-    try{
-      const j = await getJSON(api.aiNow(sym, tf));
-      $('jsonNow').textContent = pretty(j);
-      renderMeta($('metaNow'), j);
-      setBadge(true, 'OK');
-    }catch(e){
-      $('jsonNow').textContent = String(e);
-      setBadge(false, 'Ошибка');
+    function pretty(obj){ try{ return JSON.stringify(obj, null, 2); }catch(e){ return String(obj); } }
+
+    // Отрисовка блока с AI: notes + playbook
+    function renderAI(container, ai){
+      const root = document.createElement('div');
+      // notes
+      const notes = document.createElement('div');
+      notes.innerHTML = `<div class="muted small" style="margin-bottom:6px">Заметки</div>
+        <div style="background:#0f1526;border:1px solid rgba(255,255,255,.08);padding:10px 12px;border-radius:10px">${(ai && ai.notes) ? ai.notes : '<span class="muted">—</span>'}</div>`;
+      root.appendChild(notes);
+
+      // playbook
+      const pb = Array.isArray(ai?.playbook) ? ai.playbook : [];
+      const table = document.createElement('table');
+      table.innerHTML = `
+        <thead><tr>
+          <th style="width:70px">dir</th>
+          <th>setup</th>
+          <th>entry</th>
+          <th>invalidation</th>
+          <th style="width:80px">tp1</th>
+          <th style="width:80px">tp2</th>
+          <th style="width:86px">conf.</th>
+          <th>why</th>
+        </tr></thead>
+        <tbody></tbody>`;
+      const tb = table.querySelector('tbody');
+      if(pb.length===0){
+        tb.innerHTML = `<tr><td colspan="8" class="muted">Плейбук пуст.</td></tr>`;
+      }else{
+        pb.forEach(p=>{
+          const tr = document.createElement('tr');
+          const why = Array.isArray(p.why) ? p.why.join('; ') : (p.why || '');
+          tr.innerHTML = `
+            <td><span class="tag">${(p.dir||'').toLowerCase()}</span></td>
+            <td>${p.setup||''}</td>
+            <td>${p.entry||''}</td>
+            <td>${p.invalidation||''}</td>
+            <td class="mono">${p.tp1||''}</td>
+            <td class="mono">${p.tp2||''}</td>
+            <td class="mono">${typeof p.confidence==='number' ? (p.confidence + '%') : ''}</td>
+            <td>${why}</td>`;
+          tb.appendChild(tr);
+        });
+      }
+      root.appendChild(table);
+      container.innerHTML='';
+      container.appendChild(root);
     }
-  }
 
-  async function runBox(){
-    const sym = $('symbol').value.trim();
-    const tf  = $('tf').value;
-    try{
-      const j = await getJSON(api.aiBox(sym, tf));
-      $('jsonBox').textContent = pretty(j);
-      renderMeta($('metaBox'), j);
-      setBadge(true, 'OK');
-    }catch(e){
-      $('jsonBox').textContent = String(e);
-      setBadge(false, 'Ошибка');
+    // Универсальный fetch с диагностикой
+    async function call(url){
+      const t0 = performance.now();
+      let res, data, ok=false, http=0;
+      try{
+        res = await fetch(url, {headers:{'Accept':'application/json'}});
+        http = res.status;
+        data = await res.json();
+        ok = res.ok && (typeof data==='object');
+      }catch(e){
+        data = {ok:false, error:'fetch', detail:String(e)};
+      }
+      const dt = (performance.now()-t0).toFixed(0);
+      logDiag(`${http} ms=${dt}  GET  ${url}`);
+      srvStatus.textContent = http ? (http + ' / ' + dt+'ms') : '—';
+      return {ok, http, data};
     }
-  }
 
-  $('btnNow').addEventListener('click', runNow);
-  $('btnBox').addEventListener('click', runBox);
+    // ---------- загрузчики ----------
+    async function loadStrict(){
+      const sym = encodeURIComponent($('#sym').value);
+      const tf  = encodeURIComponent($('#tf').value);
+      const url = `/api/hud_api_strict.php?sym=${sym}&tf=${tf}&limit=3`;
+      const r = await call(url);
+      badge($('#stOK'), r.ok && r.data?.ok!==false);
+      $('#strictMeta').textContent = r.ok && r.data?.data?.length
+        ? `Символ/TF: ${sym} / ${tf}. Показаны последние ${r.data.data.length} записи.`
+        : '';
+      $('#strictRaw').textContent = pretty(r.data);
+    }
 
-  // стартовая загрузка: строгий API + текущий анализ
-  runStrict().then(runNow).catch(()=>{});
-})();
-</script>
+    async function loadAI(kind){ // kind: analysis | corridor
+      const sym = encodeURIComponent($('#sym').value);
+      const tf  = encodeURIComponent($('#tf').value);
+      const url = `/api/hud_ai.php?mode=now&sym=${sym}&tf=${tf}&kind=${encodeURIComponent(kind)}`;
+      const r = await call(url);
+      const ok = r.ok && r.data?.ok!==false;
+      const meta = (r.data?.meta || r.data?.analysis || {});
+      const ai   = (r.data?.ai || r.data || {}); // на случай, если сервер уже отдаёт {"notes","playbook"} на верхнем уровне
+
+      if(kind==='analysis'){
+        badge($('#anOK'), ok);
+        $('#anMeta').innerHTML = `<div class="kvs">
+          <div class="kv">модель: <span class="muted">${meta.model||'—'}</span></div>
+          <div class="kv">символ/TF: <span class="muted">${meta.symbol||$('#sym').value} / ${$('#tf').value}m</span></div>
+          <div class="kv">режим: <span class="muted">${(r.data?.analysis?.regime)||'—'}</span></div>
+          <div class="kv">bias: <span class="muted">${(r.data?.analysis?.bias)||'—'}</span></div>
+          <div class="kv">цена: <span class="muted">${(r.data?.analysis?.price ?? '—')}</span></div>
+        </div>`;
+        renderAI($('#anView'), ai);
+        $('#anRaw').textContent = pretty(r.data);
+      }else{
+        badge($('#sgOK'), ok);
+        $('#sgMeta').innerHTML = `<div class="kvs">
+          <div class="kv">модель: <span class="muted">${meta.model||'—'}</span></div>
+          <div class="kv">символ/TF: <span class="muted">${meta.symbol||$('#sym').value} / ${$('#tf').value}m</span></div>
+          <div class="kv">режим: <span class="muted">${(r.data?.analysis?.regime)||'—'}</span></div>
+          <div class="kv">bias: <span class="muted">${(r.data?.analysis?.bias)||'—'}</span></div>
+          <div class="kv">цена: <span class="muted">${(r.data?.analysis?.price ?? '—')}</span></div>
+        </div>`;
+        renderAI($('#sgView'), ai);
+        $('#sgRaw').textContent = pretty(r.data);
+      }
+    }
+
+    // -------- UI bindings --------
+    $('#btnAnalysis').addEventListener('click', ()=> loadAI('analysis'));
+    $('#btnCorridor').addEventListener('click', ()=> loadAI('corridor'));
+    $('#anRawBtn').addEventListener('click', ()=> {
+      const el=$('#anRaw'); el.style.display = (el.style.display==='none')?'block':'none';
+    });
+    $('#sgRawBtn').addEventListener('click', ()=> {
+      const el=$('#sgRaw'); el.style.display = (el.style.display==='none')?'block':'none';
+    });
+
+    // первичная загрузка
+    (async function boot(){
+      await loadStrict();
+      await loadAI('analysis');
+      await loadAI('corridor');
+    })();
+  </script>
 </body>
 </html>
