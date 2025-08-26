@@ -19,8 +19,7 @@ DB_CONFIG = {
     'password': '3e6YxiKwRAE7ZpCn',
     'database': 'gemini_tr'
 }
-GEMINI_API_KEY = "AIzaSyAP6S4G7Jch-rob2YcJmO9eEqx80LvZhoM" # Не забудь вставить твой ключ
-# ИЗМЕНЕНИЕ: Указываем правильную модель gemini-2.5-flash
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY" # Не забудь вставить твой ключ
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 PROJECT_PATH = '/www/wwwroot/cryptobavaro.online/gemini_analytics_api'
 
@@ -30,43 +29,72 @@ app = Flask(__name__)
 CORS(app)
 
 # --- ФУНКЦИИ-ПРОМПТЫ ДЛЯ GEMINI ---
-def format_corridor_prompt(market_data):
-    """Формирует промпт для автоматического 'Сигнала входа'."""
+def format_corridor_prompt(market_data, price_dynamics):
+    """Формирует промпт для 'Сигнала входа (Авто)'."""
     return f"""
-Ты — русскоязычный трейдинг-аналитик.
-Контекст: последние данные по символу {market_data['symbol']} на 5-минутном ТФ.
-- Цена закрытия: {market_data['close_price']}
+Ты — сигнальный бот для скальпинга BTCUSDT. Твоя задача — проанализировать рыночные данные и найти ОДИН потенциальный торговый сетап с высокой вероятностью успеха.
+
+Ключевое правило: Ты должен предлагать сетап, только если его вероятность успеха (probability) превышает 65%.
+Если такого сетапа нет: Ты ОБЯЗАН вернуть JSON с пустым `playbook`: {{"bias": "Нейтральный", "playbook": []}}.
+Если сетап найден: Он должен быть рассчитан на реализацию в течение следующих 30-120 минут.
+
+Контекст:
+- Текущая цена: {market_data['close_price']}
 - RSI(14) на M5: {market_data['rsi']:.2f}
-- Положение цены относительно EMA(200) на H1: {'выше' if market_data['close_price'] > market_data['h1_ema200'] else 'ниже'}
-- Глобальный тренд на H4: {market_data['h4_trend']}
-- Ключевые уровни Пивот: S1={market_data['pivot_s1']}, P={market_data['pivot_p']}, R1={market_data['pivot_r1']}
-- Уровень VWAP: {market_data['vwap']:.2f}
-Задача («Сигнал входа / коридор сделки»):
-- Дай короткие заметки (один абзац, до 250–300 символов).
-- Сформируй строго 1–2 максимально практичных сценария для работы в коридоре/диапазоне.
-Важное:
-- Ответ должен содержать только JSON-объект с полями "notes" (string) и "playbook" (array of objects). Без лишнего текста, объяснений и markdown.
+- Тренд на H4: {market_data['h4_trend']}
+- Ключевые уровни: S1={market_data['pivot_s1']}, P={market_data['pivot_p']}, R1={market_data['pivot_r1']}, VWAP={market_data['vwap']:.2f}
+- Динамика за последние 2 часа: {price_dynamics}
+
+Твой ответ должен быть СТРОГО в формате JSON и содержать ТОЛЬКО JSON-объект.
+
+Структура JSON:
+{{
+  "bias": "Бычий" | "Медвежий" | "Нейтральный",
+  "playbook": [
+    {{
+      "dir": "long" | "short",
+      "setup": "Краткое название сетапа (например, 'Отбой от VWAP')",
+      "trigger": "ЧЕТКОЕ УСЛОВИЕ для входа (например, 'Пробой и закрепление 5m свечи выше 110500')",
+      "entry_price": "КОНКРЕТНОЕ ЧИСЛО (цена входа)",
+      "stop_loss": "КОНКРЕТНОЕ ЧИСЛО (цена стоп-лосса)",
+      "take_profit_1": "КОНКРЕТНОЕ ЧИСЛО (цена первой цели)",
+      "probability": "ЧИСЛО от 65 до 100",
+      "rationale": "2-3 очень коротких аргумента через ';'"
+    }}
+  ]
+}}
 """
 
-def format_manual_analysis_prompt(market_data):
-    """Формирует промпт для ручного 'Текущего анализа'."""
+def format_manual_analysis_prompt(market_data, price_dynamics):
+    """Формирует промпт для 'Текущего анализа' (Ручной)."""
     return f"""
-Ты — русскоязычный трейдинг-аналитик.
-Контекст: последние данные по символу {market_data['symbol']} на 5-минутном ТФ.
-- Цена закрытия: {market_data['close_price']}
+Ты — старший трейдинг-аналитик. Твоя задача — дать краткий, но емкий обзор текущей рыночной ситуации и предложить несколько (от 2 до 4) возможных сценариев развития событий на ближайшие несколько часов. Говори простым языком, без лишних терминов.
+
+Контекст:
+- Текущая цена: {market_data['close_price']}
 - RSI(14) на M5: {market_data['rsi']:.2f}
-- Положение цены относительно EMA(200) на H1: {'выше' if market_data['close_price'] > market_data['h1_ema200'] else 'ниже'}
-- Глобальный тренд на H4: {market_data['h4_trend']}
-- Ключевые уровни Пивот: S1={market_data['pivot_s1']}, P={market_data['pivot_p']}, R1={market_data['pivot_r1']}
-- Уровень VWAP: {market_data['vwap']:.2f}
-Задача: из коротких рыночных признаков сделать:
-1) краткие заметки (один абзац, максимум ~400–450 символов);
-2) плейбук (до 4 сценариев) — массив объектов.
-Важное:
-- Не выдумывай уровни — опирайся на присланные.
-- Если сигналов мало — дай безопасный, консервативный сценарий.
-- Тон — деловой, без эмоций, без эмодзи, всё на русском.
-- Ответ должен содержать только JSON-объект с полями "notes" (string) и "playbook" (array of objects). Без лишнего текста, объяснений и markdown.
+- Тренд на H4: {market_data['h4_trend']}
+- Ключевые уровни: S1={market_data['pivot_s1']}, P={market_data['pivot_p']}, R1={market_data['pivot_r1']}, VWAP={market_data['vwap']:.2f}
+- Динамика за последние 2 часа: {price_dynamics}
+
+Твой ответ должен быть СТРОГО в формате JSON и содержать ТОЛЬКО JSON-объект.
+
+Структура JSON:
+{{
+  "market_summary": "Краткий абзац (до 400 символов) о текущем состоянии рынка, написанный простым языком.",
+  "playbook": [
+    {{
+      "dir": "long" | "short" | "neutral",
+      "setup": "Краткое название сценария",
+      "trigger": "КЛЮЧЕВОЕ УСЛОВИЕ, которое подтвердит сценарий",
+      "entry_price": "Примерная цена или диапазон для входа",
+      "stop_loss": "Примерный уровень для стопа",
+      "take_profit_1": "Реалистичная цель",
+      "probability": "ЧИСЛО от 0 до 100",
+      "rationale": "2-3 коротких аргумента через ';'"
+    }}
+  ]
+}}
 """
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
@@ -120,20 +148,29 @@ def save_market_data(data):
             conn.close()
     return last_id
 
-def get_latest_market_data():
+def get_historical_data(limit=24):
     conn = None
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM market_data ORDER BY id DESC LIMIT 1")
-        return cursor.fetchone()
+        cursor.execute(f"SELECT close_price, rsi, created_at FROM market_data ORDER BY id DESC LIMIT {limit}")
+        return cursor.fetchall()
     except Error as e:
-        logging.error(f"Ошибка при получении данных из MySQL: {e}")
+        logging.error(f"Ошибка при получении исторических данных: {e}")
     finally:
         if conn and conn.is_connected():
             cursor.close()
             conn.close()
-    return None
+    return []
+
+def format_price_dynamics(historical_data):
+    if not historical_data:
+        return "Нет исторических данных."
+    data = list(reversed(historical_data))
+    start_price = data[0]['close_price']
+    end_price = data[-1]['close_price']
+    change_percent = ((end_price - start_price) / start_price) * 100
+    return f"Цена изменилась на {change_percent:.2f}%. Начальная цена: {start_price}, конечная: {end_price}."
 
 def save_gemini_analysis(market_data_id, analysis_data):
     conn = None
@@ -180,9 +217,11 @@ def get_latest_analysis():
 @app.route('/gemini_analytics_api/get_manual_analysis', methods=['GET'])
 def get_manual_analysis():
     try:
-        latest_market_data = get_latest_market_data()
-        if latest_market_data:
-            prompt = format_manual_analysis_prompt(latest_market_data)
+        historical_data = get_historical_data()
+        if historical_data:
+            latest_market_data = historical_data[-1]
+            price_dynamics = format_price_dynamics(historical_data)
+            prompt = format_manual_analysis_prompt(latest_market_data, price_dynamics)
             analysis = get_gemini_analysis(prompt)
             if analysis:
                 return jsonify(analysis)
@@ -202,11 +241,13 @@ def tradingview_webhook():
         data = json.loads(raw_data)
         market_data_id = save_market_data(data)
         if market_data_id:
-            latest_market_data = get_latest_market_data()
-            if latest_market_data:
-                prompt = format_corridor_prompt(latest_market_data)
+            historical_data = get_historical_data()
+            if historical_data:
+                latest_market_data = historical_data[-1]
+                price_dynamics = format_price_dynamics(historical_data)
+                prompt = format_corridor_prompt(latest_market_data, price_dynamics)
                 analysis = get_gemini_analysis(prompt)
-                if analysis:
+                if analysis and analysis.get('playbook'):
                     save_gemini_analysis(market_data_id, analysis)
         return jsonify({"status": "success"}), 200
     except Exception as e:
