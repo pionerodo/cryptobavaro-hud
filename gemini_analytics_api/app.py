@@ -20,7 +20,8 @@ DB_CONFIG = {
     'database': 'gemini_tr'
 }
 GEMINI_API_KEY = "AIzaSyAP6S4G7Jch-rob2YcJmO9eEqx80LvZhoM" # Не забудь вставить твой ключ
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent"
+# ИЗМЕНЕНИЕ: Указываем правильную модель gemini-2.5-flash
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 PROJECT_PATH = '/www/wwwroot/cryptobavaro.online/gemini_analytics_api'
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
