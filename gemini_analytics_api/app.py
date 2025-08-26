@@ -13,7 +13,7 @@ import datetime
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'gemini',
-    'password': 'your_db_password',
+    'password': '3e6YxiKwRAE7ZpCn',
     'database': 'gemini_tr'
 }
 GEMINI_API_KEY = "AIzaSyAP6S4G7Jch-rob2YcJmO9eEqx80LvZhoM"
