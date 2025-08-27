@@ -14,7 +14,6 @@
         .log-entry.loss { border-left-color: #EF4444; }
         .loader { border: 4px solid #4B5563; border-top: 4px solid #3B82F6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        /* Стили для календаря */
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
     </style>
 </head>
@@ -28,7 +27,6 @@
 
         <div class="card p-6 rounded-lg shadow-lg mb-8">
             <h2 class="text-2xl font-semibold mb-4 text-white">Управление симуляцией</h2>
-            <!-- НОВЫЕ ПОЛЯ ДЛЯ ДАТ -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label for="startDate" class="block text-sm font-medium text-gray-400">Дата начала</label>
@@ -78,24 +76,18 @@
         }
 
         function startBacktest() {
-            // ИЗМЕНЕНИЕ: Считываем даты и проверяем их
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
-
             if (!startDate || !endDate) {
                 addLog('Пожалуйста, выберите дату начала и окончания.', 'loss');
                 return;
             }
-
             startButton.disabled = true;
             statusEl.innerHTML = '<div class="flex items-center space-x-2"><div class="loader"></div><span>Выполняется...</span></div>';
             logContainer.innerHTML = '';
             addLog('Запуск симуляции...');
-
-            // ИЗМЕНЕНИЕ: Передаем даты в URL
             const url = `/gemini_analytics_api/run_backtest?start_date=${startDate}&end_date=${endDate}`;
             eventSource = new EventSource(url);
-
             eventSource.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 if (data.log) { addLog(data.log, data.type); }
@@ -105,7 +97,6 @@
                     profitFactorEl.textContent = data.stats.profit_factor.toFixed(2);
                 }
             };
-
             eventSource.onerror = function(err) {
                 addLog('Ошибка соединения или тест завершен.', 'loss');
                 statusEl.textContent = 'Статус: Завершен';
@@ -113,7 +104,6 @@
                 eventSource.close();
             };
         }
-
         startButton.addEventListener('click', startBacktest);
     </script>
 </body>
