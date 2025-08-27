@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HUD Dashboard - Gemini Trading Analysis</title>
+    <title>HUD Dashboard v2.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #111827; color: #E5E7EB; font-family: 'Inter', sans-serif; }
@@ -109,9 +109,7 @@
                 loader.style.display = 'none';
                 signalsContainer.innerHTML = ''; 
                 
-                // ОБНОВЛЕНО: Обрабатываем новую структуру
                 if (data && data.playbook) {
-                    // Обновляем индикатор уклона
                     biasIndicator.textContent = data.bias || 'Нейтральный';
                     biasIndicator.className = 'px-3 py-1 text-sm font-semibold rounded-full ' + (data.bias === 'Бычий' ? 'bg-green-500 text-white' : data.bias === 'Медвежий' ? 'bg-red-500 text-white' : 'bg-gray-500 text-white');
                     
@@ -149,7 +147,6 @@
                 const data = await response.json();
                 analysisContent.innerHTML = '';
                 
-                // ОБНОВЛЕНО: Обрабатываем новую структуру
                 if (data && data.playbook && Array.isArray(data.playbook)) {
                     analysisContent.innerHTML += `<p class="text-gray-300 mb-4">${data.market_summary || ''}</p>`;
                     data.playbook.forEach(play => {
