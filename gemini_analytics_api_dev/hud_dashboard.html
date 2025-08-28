@@ -103,7 +103,7 @@
 
         async function fetchAutoSignals() {
             try {
-                const response = await fetch('https://cryptobavaro.online/gemini_analytics_api/get_latest_analysis');
+                const response = await fetch('https://dev.cryptobavaro.online/get_latest_analysis');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
                 loader.style.display = 'none';
