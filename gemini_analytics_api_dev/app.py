@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, abort, Response
+from flask import Flask, request, jsonify, abort
 from flask_cors import CORS
 import json
 import logging
 import mysql.connector
 from mysql.connector import Error
 import requests
-import datetime
-import subprocess
 import os
 
 # --- КОНФИГУРАЦИЯ ---
@@ -20,42 +18,55 @@ DB_CONFIG = {
 }
 GEMINI_API_KEY = "AIzaSyAP6S4G7Jch-rob2YcJmO9eEqx80LvZhoM" # Твой ключ
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
-# ИЗМЕНЕНИЕ: Путь к проекту теперь указывает на тестовую папку
 PROJECT_PATH = '/www/wwwroot/cryptobavaro.online/gemini_analytics_api_dev'
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
-# ИЗМЕНЕНИЕ: Лог-файл теперь будет в папке dev
 logging.basicConfig(filename=os.path.join(PROJECT_PATH, 'webhook.log'), level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 app = Flask(__name__)
 CORS(app)
 
-# --- ПРОМПТЫ v2.1 (без изменений) ---
-def format_corridor_prompt_v2_1(market_data):
+# --- НОВЫЙ ПРОМПТ v4.0 ДЛЯ SMC-АНАЛИЗА ---
+def format_smc_prompt(market_data):
     return f"""
-Ты — системный сканер торговых сетапов. Твоя задача — находить качественные внутридневные сетапы с горизонтом реализации от 15 до 120 минут.
-Контекст:
-- Текущие рыночные индикаторы: { {k: v for k, v in market_data.items() if k not in ['symbol', 'price_dynamics_2h']} }
-- Динамика цен за последние 2 часа (price_dynamics_2h): {market_data.get('price_dynamics_2h')}. Проанализируй этот массив, чтобы понять импульс, недавние пробои уровней и формирование локальной структуры.
-Правила:
-1. Генерируй сетап только если вероятность его успеха выше 65%. Если уверенность ниже, верни пустой "playbook".
-2. Ответ должен быть в строгом JSON-формате со следующими полями: "bias", "playbook".
-3. Объект в "playbook" должен содержать: "dir", "setup", "trigger", "entry_price", "stop_loss", "take_profit_1", "probability", "rationale".
-Ответ: Верни только JSON.
+Ты — профессиональный трейдер, использующий методологию Smart Money Concepts (SMC). Твоя задача — провести многослойный анализ и найти один высоковероятностный сетап.
+
+**Слой 1: Контекст и Структура**
+- Текущая торговая сессия: {market_data.get('trading_session')}
+- Структурное событие на M15: {market_data.get('structure_m15')} (Ищи BOS для подтверждения тренда или CHoCH для разворота).
+
+**Слой 2: Зоны Интереса (POI) и Триггер**
+- Цена закрытия: {market_data.get('close_price')}
+- Последний бычий Ордер Блок на M5: {market_data.get('bullish_ob_m5')}
+- Последний медвежий Ордер Блок на M5: {market_data.get('bearish_ob_m5')}
+- Триггерное событие на M5: {market_data.get('sfp_m5')} (SFP - ключевой сигнал для входа).
+
+**Правила принятия решений:**
+1.  **ИЩИ ЛОНГ**, если выполнены ВСЕ условия:
+    a) Структура на М15 бычья (`BOS_Up`) или произошла смена характера на бычью (`CHoCH_Up`).
+    b) Произошел бычий триггер `SFP_Down` (сбор ликвидности снизу).
+    c) Этот SFP произошел вблизи или на бычьем Ордер Блоке.
+    d) Сессия - Лондон или Нью-Йорк (повышенный приоритет).
+2.  **ИЩИ ШОРТ**, если выполнены ВСЕ условия:
+    a) Структура на М15 медвежья (`BOS_Down`) или произошла смена характера на медвежью (`CHoCH_Down`).
+    b) Произошел медвежий триггер `SFP_Up` (сбор ликвидности сверху).
+    c) Этот SFP произошел вблизи или на медвежьем Ордер Блоке.
+    d) Сессия - Лондон или Нью-Йорк (повышенный приоритет).
+3.  **НЕ ГЕНЕРИРУЙ СИГНАЛ**, если нет четкого совпадения всех факторов. Верни пустой "playbook".
+4.  **Для ЛОНГ-сетапа:**
+    - `setup`: "SMC Long"
+    - `stop_loss`: Рассчитай как минимум свечи, на которой был `SFP_Down`.
+    - `take_profit_1`: Ближайший медвежий Ордер Блок или предыдущий значимый максимум.
+5.  **Для ШОРТ-сетапа:**
+    - `setup`: "SMC Short"
+    - `stop_loss`: Рассчитай как максимум свечи, на которой был `SFP_Up`.
+    - `take_profit_1`: Ближайший бычий Ордер Блок или предыдущий значимый минимум.
+6.  `probability` должна быть не ниже 75%, так как мы ищем только лучшие сетапы.
+7.  `rationale` должно кратко описывать всю цепочку логики (например, "CHoCH на M15, затем SFP на тесте бычьего ОБ во время Лондонской сессии").
+
+Ответ: Верни только JSON с полями "bias" и "playbook".
 """
 
-def format_manual_analysis_prompt_v2_1(market_data):
-    return f"""
-Ты — системный трейдинг-аналитик. Твоя задача: На основе предоставленных данных и анализа динамики цены за последние 2 часа найти до 3-х потенциальных торговых сетапов с горизонтом 15-120 минут.
-Контекст:
-- Текущие рыночные индикаторы: { {k: v for k, v in market_data.items() if k not in ['symbol', 'price_dynamics_2h']} }
-- Динамика цен за последние 2 часа (price_dynamics_2h): {market_data.get('price_dynamics_2h')}.
-Правила:
-1. В "market_summary" дай краткую оценку рыночной фазы простым языком.
-2. Для каждого сетапа в "playbook" предоставь полный набор полей: "dir", "setup", "trigger", "entry_price", "stop_loss", "take_profit_1", "probability", "rationale".
-Ответ: Верни только JSON с полями "market_summary" и "playbook".
-"""
-
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (без изменений) ---
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def get_gemini_analysis(prompt):
     headers = {'Content-Type': 'application/json'}
     params = {'key': GEMINI_API_KEY}
@@ -66,29 +77,52 @@ def get_gemini_analysis(prompt):
         response.raise_for_status()
         result = response.json()
         content = result['candidates'][0]['content']['parts'][0]['text']
-        logging.info("Получен V2.1 ответ от Gemini.")
+        logging.info("Получен v4.0 SMC ответ от Gemini.")
         return json.loads(content)
     except Exception as e:
-        logging.error(f"Ошибка V2.1 API: {e}")
+        logging.error(f"Ошибка v4.0 API: {e}")
         return None
 
-def save_market_data_v2(data):
+def save_market_data_v4(data):
     last_id = None
     conn = None
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         query = """
-        INSERT INTO market_data (symbol, event_timestamp, open_price, high_price, low_price, close_price, volume, ema21, ema50, ema200, macd_line, macd_signal, macd_hist, rsi_m5, vwap, squeeze_momentum, atr, volume_ratio, price_dynamics_2h, sfp_pattern_15m, channel_pattern_15m, rsi_m15, stoch_k_m15, ema200_h1, rsi_h1, h4_trend, pivot_p, pivot_r1, pivot_s1) 
-        VALUES (%(symbol)s, %(event_timestamp)s, %(open_price)s, %(high_price)s, %(low_price)s, %(close_price)s, %(volume)s, %(ema21)s, %(ema50)s, %(ema200)s, %(macd_line)s, %(macd_signal)s, %(macd_hist)s, %(rsi_m5)s, %(vwap)s, %(squeeze_momentum)s, %(atr)s, %(volume_ratio)s, %(price_dynamics_2h)s, %(sfp_pattern_15m)s, %(channel_pattern_15m)s, %(rsi_m15)s, %(stoch_k_m15)s, %(ema200_h1)s, %(rsi_h1)s, %(h4_trend)s, %(pivot_p)s, %(pivot_r1)s, %(pivot_s1)s)
+        INSERT INTO market_data (
+            symbol, event_timestamp, close_price, volume, trading_session, 
+            structure_m15, sfp_m5, bullish_ob_m5, bearish_ob_m5, h4_trend, 
+            pivot_p, pivot_r1, pivot_s1, ema200_m5
+        ) VALUES (
+            %(symbol)s, %(event_timestamp)s, %(close_price)s, %(volume)s, %(trading_session)s,
+            %(structure_m15)s, %(sfp_m5)s, %(bullish_ob_m5)s, %(bearish_ob_m5)s, %(h4_trend)s,
+            %(pivot_p)s, %(pivot_r1)s, %(pivot_s1)s, %(ema200_m5)s
+        )
         """
-        params = {key: data.get(key) for key in ['symbol', 'event_timestamp', 'open_price', 'high_price', 'low_price', 'close_price', 'volume', 'ema21', 'ema50', 'ema200', 'macd_line', 'macd_signal', 'macd_hist', 'rsi_m5', 'vwap', 'squeeze_momentum', 'atr', 'volume_ratio', 'price_dynamics_2h', 'sfp_pattern_15m', 'channel_pattern_15m', 'rsi_m15', 'stoch_k_m15', 'ema200_h1', 'rsi_h1', 'h4_trend', 'pivot_p', 'pivot_r1', 'pivot_s1']}
+        # Собираем только те параметры, которые есть в нашей новой таблице
+        params = {
+            'symbol': data.get('symbol'),
+            'event_timestamp': data.get('event_timestamp'),
+            'close_price': data.get('close_price'),
+            'volume': data.get('volume'),
+            'trading_session': data.get('trading_session'),
+            'structure_m15': data.get('structure_m15'),
+            'sfp_m5': data.get('sfp_m5'),
+            'bullish_ob_m5': data.get('bullish_ob_m5'),
+            'bearish_ob_m5': data.get('bearish_ob_m5'),
+            'h4_trend': data.get('h4_trend'),
+            'pivot_p': data.get('pivot_p'),
+            'pivot_r1': data.get('pivot_r1'),
+            'pivot_s1': data.get('pivot_s1'),
+            'ema200_m5': data.get('ema200_m5')
+        }
         cursor.execute(query, params)
         conn.commit()
         last_id = cursor.lastrowid
-        logging.info(f"V2.1 Рыночные данные сохранены с ID: {last_id}")
+        logging.info(f"v4.0 SMC данные сохранены с ID: {last_id}")
     except Error as e:
-        logging.error(f"V2.1 Ошибка при сохранении рыночных данных: {e}")
+        logging.error(f"v4.0 Ошибка при сохранении рыночных данных: {e}")
     finally:
         if conn and conn.is_connected():
             cursor.close()
@@ -103,7 +137,7 @@ def get_latest_market_data():
         cursor.execute("SELECT * FROM market_data ORDER BY id DESC LIMIT 1")
         return cursor.fetchone()
     except Error as e:
-        logging.error(f"V2.1 Ошибка при получении данных из MySQL: {e}")
+        logging.error(f"v4.0 Ошибка при получении данных из MySQL: {e}")
     finally:
         if conn and conn.is_connected():
             cursor.close()
@@ -116,20 +150,38 @@ def save_gemini_analysis(market_data_id, analysis_data):
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         query = """INSERT INTO gemini_analysis (market_data_id, analysis_type, notes, playbook) VALUES (%s, %s, %s, %s)"""
-        notes_text = analysis_data.get('bias') or analysis_data.get('market_summary') or "N/A"
-        params = (market_data_id, "AI Signal V2.1", notes_text, json.dumps(analysis_data.get('playbook'), ensure_ascii=False))
+        notes_text = analysis_data.get('bias') or "N/A"
+        params = (market_data_id, "AI Signal v4.0 SMC", notes_text, json.dumps(analysis_data.get('playbook'), ensure_ascii=False))
         cursor.execute(query, params)
         conn.commit()
-        logging.info(f"V2.1 Анализ Gemini для market_data_id {market_data_id} сохранен.")
+        logging.info(f"v4.0 Анализ Gemini для market_data_id {market_data_id} сохранен.")
     except Error as e:
-        logging.error(f"V2.1 Ошибка при сохранении анализа Gemini: {e}")
+        logging.error(f"v4.0 Ошибка при сохранении анализа Gemini: {e}")
     finally:
         if conn and conn.is_connected():
             cursor.close()
             conn.close()
 
 # --- МАРШРУТЫ API ---
-# ИЗМЕНЕНИЕ: Упрощаем все маршруты для работы с поддоменом
+@app.route('/webhook', methods=['POST'])
+def tradingview_webhook():
+    raw_data = request.get_data(as_text=True)
+    if not raw_data: abort(400)
+    try:
+        data = json.loads(raw_data)
+        market_data_id = save_market_data_v4(data)
+        if market_data_id:
+            latest_market_data = get_latest_market_data()
+            if latest_market_data:
+                prompt = format_smc_prompt(latest_market_data)
+                analysis = get_gemini_analysis(prompt)
+                if analysis and analysis.get('playbook') and len(analysis['playbook']) > 0:
+                    save_gemini_analysis(market_data_id, analysis)
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        logging.error(f"Критическая ошибка в webhook v4.0: {e}", exc_info=True)
+        abort(500)
+
 @app.route('/get_latest_analysis', methods=['GET'])
 def get_latest_analysis():
     conn = None
@@ -154,77 +206,5 @@ def get_latest_analysis():
             cursor.close()
             conn.close()
 
-@app.route('/get_manual_analysis', methods=['GET'])
-def get_manual_analysis():
-    try:
-        latest_market_data = get_latest_market_data()
-        if latest_market_data:
-            prompt = format_manual_analysis_prompt_v2_1(latest_market_data)
-            analysis = get_gemini_analysis(prompt)
-            if analysis:
-                return jsonify(analysis)
-            else:
-                return jsonify({"error": "Failed to get analysis from Gemini"}), 500
-        else:
-            return jsonify({"error": "No market data found"}), 404
-    except Exception as e:
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route('/webhook', methods=['POST'])
-def tradingview_webhook():
-    raw_data = request.get_data(as_text=True)
-    if not raw_data: abort(400)
-    try:
-        data = json.loads(raw_data)
-        market_data_id = save_market_data_v2(data)
-        if market_data_id:
-            latest_market_data = get_latest_market_data()
-            if latest_market_data:
-                prompt = format_corridor_prompt_v2_1(latest_market_data)
-                analysis = get_gemini_analysis(prompt)
-                if analysis and analysis.get('playbook'):
-                    save_gemini_analysis(market_data_id, analysis)
-        return jsonify({"status": "success"}), 200
-    except Exception as e:
-        logging.error(f"Критическая ошибка в webhook v2.1: {e}", exc_info=True)
-        abort(500)
-
-@app.route('/run_backtest')
-def run_backtest():
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-    if not start_date or not end_date:
-        def error_stream():
-            yield f"data: {json.dumps({'log': 'Ошибка: Даты не указаны.', 'type': 'loss'})}\n\n"
-        return Response(error_stream(), mimetype='text/event-stream')
-
-    def generate():
-        # ИЗМЕНЕНИЕ: Путь к venv теперь правильный для тестового проекта
-        venv_python_path = os.path.join(PROJECT_PATH, '800456055688cf58a9b2fb3c1ceae059_venv/bin/python3')
-        script_path = os.path.join(PROJECT_PATH, 'backtester.py')
-        command = [venv_python_path, script_path, start_date, end_date]
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, encoding='utf-8')
-        
-        for line in process.stdout:
-            try:
-                line_type_str = line.split(']')[0][1:].strip().upper()
-                message_str = line.split(']', 1)[1].strip()
-                data_to_send = {}
-                if line_type_str == 'LOG':
-                    data_to_send = {"log": message_str, "type": "info"}
-                elif line_type_str in ['WIN', 'LOSS']:
-                    data_to_send = {"log": message_str, "type": line_type_str.lower()}
-                elif line_type_str == 'STATS':
-                    stats_data = json.loads(message_str.replace("'", "\""))
-                    data_to_send = {"stats": stats_data}
-                
-                if data_to_send:
-                    yield f"data: {json.dumps(data_to_send, ensure_ascii=False)}\n\n"
-            except Exception:
-                continue
-    return Response(generate(), mimetype='text/event-stream')
-
 if __name__ == '__main__':
-    # Этот порт используется только при локальном запуске, Gunicorn использует свой
     app.run(host='0.0.0.0', port=5001)
-
