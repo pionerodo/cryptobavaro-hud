@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtesting Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #111827; color: #E5E7EB; font-family: 'Inter', sans-serif; }
+        .card { background-color: #1F2937; border: 1px solid #374151; }
+        .stat-card { background-color: #374151; }
+        .log-entry { border-left: 2px solid #4B5563; }
+        .log-entry.win { border-left-color: #10B981; }
+        .log-entry.loss { border-left-color: #EF4444; }
+        .loader { border: 4px solid #4B5563; border-top: 4px solid #3B82F6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-white">Панель бэктестинга</h1>
+            <p class="text-gray-400">Симуляция торговой стратегии на исторических данных</p>
+        </header>
+
+        <div class="card p-6 rounded-lg shadow-lg mb-8">
+            <h2 class="text-2xl font-semibold mb-4 text-white">Управление симуляцией</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="startDate" class="block text-sm font-medium text-gray-400">Дата начала</label>
+                    <input type="date" id="startDate" name="startDate" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="endDate" class="block text-sm font-medium text-gray-400">Дата окончания</label>
+                    <input type="date" id="endDate" name="endDate" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button id="startButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300">
+                    Запустить бэктест
+                </button>
+                <div id="status" class="text-gray-400">Статус: Готов</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div id="totalTrades" class="stat-card p-4 rounded-lg text-center"><p class="text-gray-400 text-sm">Всего сделок</p><p class="text-2xl font-bold">0</p></div>
+            <div id="winRate" class="stat-card p-4 rounded-lg text-center"><p class="text-gray-400 text-sm">Процент побед</p><p class="text-2xl font-bold">0%</p></div>
+            <div id="profitFactor" class="stat-card p-4 rounded-lg text-center"><p class="text-gray-400 text-sm">Прибыльность</p><p class="text-2xl font-bold">0.00</p></div>
+        </div>
+
+        <div class="card p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-semibold mb-4 text-white">Лог симуляции</h2>
+            <div id="logContainer" class="h-96 overflow-y-auto bg-gray-900 rounded-md p-4 font-mono text-sm space-y-2">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const startButton = document.getElementById('startButton');
+        const statusEl = document.getElementById('status');
+        const logContainer = document.getElementById('logContainer');
+        const totalTradesEl = document.getElementById('totalTrades').querySelector('p:last-child');
+        const winRateEl = document.getElementById('winRate').querySelector('p:last-child');
+        const profitFactorEl = document.getElementById('profitFactor').querySelector('p:last-child');
+        let eventSource;
+
+        function addLog(message, type = '') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry pl-3 ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function startBacktest() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            if (!startDate || !endDate) {
+                addLog('Пожалуйста, выберите дату начала и окончания.', 'loss');
+                return;
+            }
+            startButton.disabled = true;
+            statusEl.innerHTML = '<div class="flex items-center space-x-2"><div class="loader"></div><span>Выполняется...</span></div>';
+            logContainer.innerHTML = '';
+            addLog('Запуск симуляции...');
+            const url = `/gemini_analytics_api/run_backtest?start_date=${startDate}&end_date=${endDate}`;
+            eventSource = new EventSource(url);
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.log) { addLog(data.log, data.type); }
+                if (data.stats) {
+                    totalTradesEl.textContent = data.stats.total_trades;
+                    winRateEl.textContent = `${data.stats.win_rate.toFixed(2)}%`;
+                    profitFactorEl.textContent = data.stats.profit_factor.toFixed(2);
+                }
+            };
+            eventSource.onerror = function(err) {
+                addLog('Ошибка соединения или тест завершен.', 'loss');
+                statusEl.textContent = 'Статус: Завершен';
+                startButton.disabled = false;
+                eventSource.close();
+            };
+        }
+        startButton.addEventListener('click', startBacktest);
+    </script>
+</body>
+</html>
