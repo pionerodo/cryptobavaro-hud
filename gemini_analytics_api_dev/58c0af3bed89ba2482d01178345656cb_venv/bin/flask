@@ -1,7 +1,0 @@
-#!/www/wwwroot/cryptobavaro.online/gemini_analytics_api/58c0af3bed89ba2482d01178345656cb_venv/bin/python3
-import sys
-from flask.cli import main
-if __name__ == '__main__':
-    if sys.argv[0].endswith('.exe'):
-        sys.argv[0] = sys.argv[0][:-4]
-    sys.exit(main())

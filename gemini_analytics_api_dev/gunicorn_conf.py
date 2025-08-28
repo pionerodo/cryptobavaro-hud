@@ -1,4 +1,3 @@
-bind = '0.0.0.0:'
 user = 'www'
 workers = 1
 threads = 2
@@ -10,3 +9,4 @@ worker_class = 'sync'
 errorlog = chdir + '/logs/error.log'
 accesslog = chdir + '/logs/access.log'
 pidfile = chdir + '/logs/gemini_api_dev.pid'
+bind = '0.0.0.0:5001'
