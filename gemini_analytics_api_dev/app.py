@@ -9,11 +9,7 @@ import google.generativeai as genai
 app = Flask(__name__)
 
 # --- 1. КОНФИГУРАЦИЯ ---
-
-# !!! ВАЖНО: Вставь сюда свой API ключ от Google AI Studio !!!
 GEMINI_API_KEY = "AIzaSyAP6S4G7Jch-rob2YcJmO9eEqx80LvZhoM"
-
-# Настройки подключения к базе данных
 DB_HOST = "localhost"
 DB_USER = "gemini_dev"
 DB_PASSWORD = "27C7fYRbhfcJhWB6"
@@ -22,55 +18,57 @@ DB_NAME = "gemini_tr_dev"
 # Инициализация моделей Gemini
 try:
     genai.configure(api_key=GEMINI_API_KEY)
-    # Модель для основного, глубокого анализа
     pro_model = genai.GenerativeModel('gemini-2.5-pro')
-    # Модель для будущих быстрых задач (фильтрация, пост-анализ)
     flash_model = genai.GenerativeModel('gemini-2.5-flash')
 except Exception as e:
     print(f"!!! ОШИБКА КОНФИГУРАЦИИ GEMINI: {e}")
     pro_model = None
     flash_model = None
 
-# --- 2. СУПЕР-ПРОМПТ ДЛЯ AI-АНАЛИТИКА v1.3 ---
+# --- 2. СУПЕР-ПРОМПТ v1.4 ---
 SUPER_PROMPT = """
 # РОЛЬ И ГЛАВНАЯ ЦЕЛЬ
-Ты — элитный финансовый аналитик, специализирующийся на методологии Smart Money Concepts (SMC). Твоя главная задача — действовать как профессиональный трейдер: идентифицировать высоковероятностные сетапы, где потенциальная прибыль значительно превышает рассчитанный риск. Ты ищешь статистическое преимущество и положительное математическое ожидание на дистанции.
+Ты — элитный финансовый аналитик (SMC). Твоя задача — идентифицировать высоковероятностные сетапы, ища статистическое преимущество.
 
 # КЛЮЧЕВЫЕ ПРИНЦИПЫ АНАЛИЗА
-1.  **Контекст Старшего Таймфрейма (HTF):** Любой сетап на младшем таймфрейме должен соответствовать глобальному направлению, которое мы определяем по структуре M15.
-2.  **Конфлюенция (Совпадение факторов):** Сигнал считается надежным, только если он подтверждается минимум тремя аналитическими факторами.
-3.  **Ликвидность:** Лучшие точки входа — это манипуляции (например, `SFP`), которые снимают ликвидность с очевидных максимумов или минимумов.
+1.  **Контекст Старшего Таймфрейма (HTF):** Сетап на M5 должен соответствовать структуре M15.
+2.  **Конфлюенция:** Сигнал надежен при совпадении **минимум трех** технических факторов.
+3.  **Ликвидность:** Лучшие входы — это манипуляции (`SFP`), снимающие ликвидность.
 
 # АЛГОРИТМ АНАЛИЗА (ШАГ ЗА ШАГОМ)
 ### Шаг 1: Определи Рыночный Режим (по `adx_14`)
 - adx > 25 -> "Тренд".
 - adx < 20 -> "Флэт".
-- иначе -> "Неопределенный".
 
 ### Шаг 2: Определи Глобальное Направление (по `structure_m15`)
-- В "Тренде": Ищи последние `BOS_Up` (для восходящего) или `BOS_Down` (для нисходящего).
-- Во "Флэте": Ищи `CHoCH_Up` у нижней границы и `CHoCH_Down` у верхней.
+- В "Тренде": Ищи `BOS`.
+- Во "Флэте": Ищи `CHoCH` у границ.
 
 ### Шаг 3: Найди Точку Входа и Конфлюенцию
-- Анализируй **самые последние строки** данных.
-- **Контекст сессии (`trading_session`):** `London`, `New York`, `NY-London Overlap` имеют высокий приоритет. `Asia` — низкий.
-- **Найди триггер (`sfp_m5`):** Ищи SFP, который соответствует твоему анализу. Самый сильный SFP — снимающий ликвидность с максимума/минимума предыдущей сессии.
-- **Проверь на конфлюенцию:** Убедись, что есть **минимум 3 совпадающих фактора**. Если их меньше, пропусти сделку.
+- Анализируй **самые последние строки** данных с графика.
+- **Контекст сессии (`trading_session`):** `London`, `New York`, `NY-London Overlap` имеют высокий приоритет.
+- **Найди триггер (`sfp_m5`):** Ищи SFP, снимающий ликвидность с максимума/минимума предыдущей сессии.
+- **Проверь на конфлюенцию:** Убедись, что есть **минимум 3 совпадающих фактора**.
 
 ### Шаг 4: Управление риском и целью
-- **Stop Loss:** Рассчитай на основе `atr_14` из последней строки: Лонг: `Цена входа - (1.5 * ATR)`, Шорт: `Цена входа + (1.5 * ATR)`.
-- **"Умный" Take Profit:** Определи цель по следующему логическому уровню ликвидности (противоположный ордер-блок, значимый high/low).
-- Убедись, что R:R не менее 1 к 2. Если нет, пропусти сделку.
+- **Stop Loss:** Лонг: `Цена входа - (1.5 * ATR)`, Шорт: `Цена входа + (1.5 * ATR)`.
+- **"Умный" Take Profit:** Цель по следующему логическому уровню ликвидности (противоположный OB, важный high/low). R:R не менее 1:2.
+
+### Шаг 5: Финальная проверка по настроениям рынка (Order Flow)
+- Проанализируй **самые последние данные из Binance**: `long_short_ratio` и `open_interest`.
+- **`long_short_ratio`**: Показывает соотношение лонг/шорт позиций у ритейл-трейдеров. Если значение экстремальное (например, > 2.5 для лонгов или < 0.5 для шортов), это **красный флаг**. Это значит, что "толпа" уже стоит в этом направлении, и маркет-мейкер может пойти против нее.
+- **`open_interest`**: Рост открытого интереса вместе с ростом цены подтверждает силу тренда. Падение — ослабление.
+- **Правило вето:** Если технический сетап идеален, но данные о настроениях ему **сильно противоречат** (например, сигнал BUY, а `long_short_ratio` = 3.0), **пропусти сделку** или укажи на этот повышенный риск в причине.
 
 # ФОРМАТ ОТВЕТА (JSON)
-Твой ответ **обязательно** должен быть ТОЛЬКО в формате JSON без какого-либо другого текста.
+Твой ответ **обязательно** должен быть ТОЛЬКО в формате JSON.
 - Если найден сетап: `{"signal": "yes", "decision": "BUY" или "SELL", "reason": "...", "entry_price": ..., "stop_loss": ..., "take_profit": ..., "tp_reason": "..."}`
 - Если сетап не найден: `{"signal": "no", "reason": "..."}`
 
 # ВХОДНЫЕ ДАННЫЕ ДЛЯ АНАЛИЗА:
 """
 
-# --- 3. HTML ШАБЛОН ДЛЯ ДАШБОРДА (ПОЛНАЯ ВЕРСИЯ) ---
+# --- 3. HTML ШАБЛОН ДЛЯ ДАШБОРДА ---
 DASHBOARD_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -167,44 +165,45 @@ DASHBOARD_TEMPLATE = """
 """
 
 # --- 4. ОСНОВНЫЕ ФУНКЦИИ И МАРШРУТЫ ---
-
 def get_db_connection():
     return pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, cursorclass=pymysql.cursors.DictCursor, autocommit=True)
 
 def run_analysis(connection, market_data_id):
-    print("--- Запуск анализа через Gemini ---")
+    print("--- Запуск анализа через Gemini Pro ---")
     if not pro_model:
         print("Модель Gemini Pro не инициализирована.")
         return
     try:
         with connection.cursor() as cursor:
-            # 1. Собираем данные с графика за 12 часов
             sql_market = "SELECT * FROM `market_data` WHERE `created_at` >= NOW() - INTERVAL 12 HOUR ORDER BY `created_at` ASC"
             cursor.execute(sql_market)
             market_history = cursor.fetchall()
             if not market_history: return
             df_market = pd.DataFrame(market_history)
-            context_str = df_market.to_string()
             
-            # 2. Формируем финальный промпт
-            final_prompt = SUPER_PROMPT + context_str
+            sql_sentiment = "SELECT * FROM `market_sentiment` WHERE `created_at` >= NOW() - INTERVAL 12 HOUR ORDER BY `created_at` ASC"
+            cursor.execute(sql_sentiment)
+            sentiment_history = cursor.fetchall()
+            df_sentiment = pd.DataFrame(sentiment_history) if sentiment_history else pd.DataFrame()
+
+            final_prompt = (
+                SUPER_PROMPT +
+                "\n\n--- Данные с графика ---\n" +
+                df_market.to_string() +
+                "\n\n--- Данные о настроениях с Binance ---\n" +
+                df_sentiment.to_string()
+            )
             
-            # 3. Отправляем запрос в Gemini Pro
-            print("Отправка запроса в Gemini Pro...")
             response = pro_model.generate_content(final_prompt)
-            
-            # 4. Обрабатываем и сохраняем ответ
             cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
-            print(f"Получен ответ от Gemini Pro: {cleaned_response_text}")
             analysis_json = json.loads(cleaned_response_text)
             
-            # 5. Сохраняем результат в БД
             sql_insert = "INSERT INTO `analysis_results` (market_data_id, signal_found, decision, reason, entry_price, stop_loss, take_profit, tp_reason) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
             cursor.execute(sql_insert, (market_data_id, analysis_json.get('signal'), analysis_json.get('decision'), analysis_json.get('reason'), analysis_json.get('entry_price'), analysis_json.get('stop_loss'), analysis_json.get('take_profit'), analysis_json.get('tp_reason')))
-            print("Результат анализа Gemini Pro успешно сохранен в БД.")
+            print("Результат анализа успешно сохранен в БД.")
 
     except Exception as e:
-        print(f"!!! ОШИБКА АНАЛИЗА Gemini: {e}")
+        print(f"!!! ОШИБКА АНАЛИЗА: {e}")
         traceback.print_exc()
 
 def to_sql_float(value):
