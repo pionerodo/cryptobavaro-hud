@@ -4,14 +4,14 @@ import traceback
 from flask import Flask, request, abort, jsonify, render_template_string
 import pymysql.cursors
 import pandas as pd
-from openai import OpenAI # --- ИЗМЕНЕНО: Импортируем библиотеку OpenAI
+import google.generativeai as genai
 
 app = Flask(__name__)
 
 # --- 1. КОНФИГУРАЦИЯ ---
 
-# !!! ВАЖНО: Вставь сюда свой API ключ от OpenAI !!!
-OPENAI_API_KEY = "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"
+# !!! ВАЖНО: Вставь сюда свой API ключ от Google AI Studio !!!
+GEMINI_API_KEY = "AIzaSyAP6S4G7Jch-rob2YcJmO9eEqx80LvZhoM"
 
 # Настройки подключения к базе данных
 DB_HOST = "localhost"
@@ -19,16 +19,20 @@ DB_USER = "gemini_dev"
 DB_PASSWORD = "27C7fYRbhfcJhWB6"
 DB_NAME = "gemini_tr_dev"
 
-# Инициализация клиента OpenAI
+# Инициализация моделей Gemini
 try:
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    # Модель для основного, глубокого анализа
+    pro_model = genai.GenerativeModel('gemini-2.5-pro')
+    # Модель для будущих быстрых задач (фильтрация, пост-анализ)
+    flash_model = genai.GenerativeModel('gemini-2.5-flash')
 except Exception as e:
-    print(f"!!! ОШИБКА КОНФИГУРАЦИИ OpenAI: {e}")
-    client = None
+    print(f"!!! ОШИБКА КОНФИГУРАЦИИ GEMINI: {e}")
+    pro_model = None
+    flash_model = None
 
-# --- 2. СУПЕР-ПРОМПТ ДЛЯ AI-АНАЛИТИКА v1.3 (адаптирован для OpenAI) ---
-# Системная инструкция для модели
-SYSTEM_PROMPT = """
+# --- 2. СУПЕР-ПРОМПТ ДЛЯ AI-АНАЛИТИКА v1.3 ---
+SUPER_PROMPT = """
 # РОЛЬ И ГЛАВНАЯ ЦЕЛЬ
 Ты — элитный финансовый аналитик, специализирующийся на методологии Smart Money Concepts (SMC). Твоя главная задача — действовать как профессиональный трейдер: идентифицировать высоковероятностные сетапы, где потенциальная прибыль значительно превышает рассчитанный риск. Ты ищешь статистическое преимущество и положительное математическое ожидание на дистанции.
 
@@ -59,9 +63,11 @@ SYSTEM_PROMPT = """
 - Убедись, что R:R не менее 1 к 2. Если нет, пропусти сделку.
 
 # ФОРМАТ ОТВЕТА (JSON)
-Твой ответ **обязательно** должен быть ТОЛЬКО в формате JSON-объекта без какого-либо другого текста.
+Твой ответ **обязательно** должен быть ТОЛЬКО в формате JSON без какого-либо другого текста.
 - Если найден сетап: `{"signal": "yes", "decision": "BUY" или "SELL", "reason": "...", "entry_price": ..., "stop_loss": ..., "take_profit": ..., "tp_reason": "..."}`
 - Если сетап не найден: `{"signal": "no", "reason": "..."}`
+
+# ВХОДНЫЕ ДАННЫЕ ДЛЯ АНАЛИЗА:
 """
 
 # --- 3. HTML ШАБЛОН ДЛЯ ДАШБОРДА (ПОЛНАЯ ВЕРСИЯ) ---
@@ -166,9 +172,9 @@ def get_db_connection():
     return pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, cursorclass=pymysql.cursors.DictCursor, autocommit=True)
 
 def run_analysis(connection, market_data_id):
-    print("--- Запуск анализа через OpenAI ---")
-    if not client:
-        print("Клиент OpenAI не инициализирован.")
+    print("--- Запуск анализа через Gemini ---")
+    if not pro_model:
+        print("Модель Gemini Pro не инициализирована.")
         return
     try:
         with connection.cursor() as cursor:
@@ -178,33 +184,29 @@ def run_analysis(connection, market_data_id):
             market_history = cursor.fetchall()
             if not market_history: return
             df_market = pd.DataFrame(market_history)
-            context_str = "Проанализируй следующие рыночные данные:\n\n" + df_market.to_string()
+            context_str = df_market.to_string()
             
-            # 2. Отправляем запрос в OpenAI
-            print("Отправка запроса в OpenAI...")
-            response = client.chat.completions.create(
-                model="gpt-4o",  # Используем gpt-4o, т.к. gpt-5 еще не выпущена
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": context_str}
-                ],
-                response_format={"type": "json_object"} # Просим модель гарантированно вернуть JSON
-            )
+            # 2. Формируем финальный промпт
+            final_prompt = SUPER_PROMPT + context_str
             
-            response_text = response.choices[0].message.content
-            print(f"Получен ответ от OpenAI: {response_text}")
-            analysis_json = json.loads(response_text)
+            # 3. Отправляем запрос в Gemini Pro
+            print("Отправка запроса в Gemini Pro...")
+            response = pro_model.generate_content(final_prompt)
             
-            # 3. Сохраняем результат в БД
+            # 4. Обрабатываем и сохраняем ответ
+            cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
+            print(f"Получен ответ от Gemini Pro: {cleaned_response_text}")
+            analysis_json = json.loads(cleaned_response_text)
+            
+            # 5. Сохраняем результат в БД
             sql_insert = "INSERT INTO `analysis_results` (market_data_id, signal_found, decision, reason, entry_price, stop_loss, take_profit, tp_reason) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
             cursor.execute(sql_insert, (market_data_id, analysis_json.get('signal'), analysis_json.get('decision'), analysis_json.get('reason'), analysis_json.get('entry_price'), analysis_json.get('stop_loss'), analysis_json.get('take_profit'), analysis_json.get('tp_reason')))
-            print("Результат анализа OpenAI успешно сохранен в БД.")
+            print("Результат анализа Gemini Pro успешно сохранен в БД.")
 
     except Exception as e:
-        print(f"!!! ОШИБКА АНАЛИЗА OpenAI: {e}")
+        print(f"!!! ОШИБКА АНАЛИЗА Gemini: {e}")
         traceback.print_exc()
 
-# ... (Код маршрутов /webhook, /, /get_latest_analysis и вспомогательных функций остается прежним) ...
 def to_sql_float(value):
     try:
         if isinstance(value, str) and value.strip().lower() == 'none': return None
@@ -272,5 +274,4 @@ def get_latest_analysis():
         connection.close()
 
 if __name__ == '__main__':
-    # Убираем фоновый сборщик Binance, т.к. мы его временно отключили
     app.run(host='0.0.0.0', port=5001, debug=False)
